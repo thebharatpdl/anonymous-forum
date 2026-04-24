@@ -1,0 +1,15 @@
+# dependencies
+node_modules
+
+# env files
+.env
+
+# expo
+.expo
+.expo-shared
+
+# logs
+npm-debug.log
+
+# OS files
+.DS_Store
