@@ -27,8 +27,6 @@ export default function TabLayout() {
 
 
 
-
-
   <Tabs.Screen
         name="add_post"
         options={{

@@ -1,17 +1,51 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { View, Text, FlatList, StyleSheet } from "react-native";
-import PostCard from  "../../components/PostCard";
-import { dummyPosts } from  "../../src/dummyPost"
+import axios from "axios";
+import PostCard from "../../components/PostCard";
+import { API_URL } from "../../src/config";
+
+// ✅ Type definition
+type Post = {
+  _id: string;
+  content: string;
+  username: string;
+    likes?: number;
+
+};
 
 export default function HomeScreen() {
+  const [posts, setPosts] = useState<Post[]>([]);
+
+  // 🔥 Fetch posts from backend
+  const fetchPosts = async () => {
+    try {
+      const response = await axios.get(API_URL);
+      
+      console.log("Fetched posts:", response.data); // debug
+
+      setPosts(response.data);
+    } catch (error) {
+      console.error("Error fetching posts:", error);
+    }
+  };
+
+  // ✅ Run once on screen load
+  useEffect(() => {
+    fetchPosts();
+  }, []);
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Anonymous Feed</Text>
 
-      <FlatList style={styles.contentbox}
-        data={dummyPosts}
+      <FlatList
+        style={styles.contentbox}
+        data={posts}
         keyExtractor={(item) => item._id}
         renderItem={({ item }) => <PostCard post={item} />}
+        ListEmptyComponent={
+          <Text style={styles.empty}>No posts yet...</Text>
+        }
       />
     </View>
   );
@@ -20,23 +54,22 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    // padding: 20,
     marginTop: 40,
   },
-  
-    contentbox: {
-flex: 1,
-backgroundColor: "#fff",
-padding: 10,
-
+  contentbox: {
+    flex: 1,
+    backgroundColor: "#fff",
+    padding: 10,
   },
   title: {
     fontSize: 22,
     fontWeight: "bold",
     marginBottom: 10,
     marginLeft: 10,
-    textShadowColor: "rgba(31, 237, 24, 0.93)",
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
+  },
+  empty: {
+    textAlign: "center",
+    marginTop: 20,
+    color: "gray",
   },
 });
