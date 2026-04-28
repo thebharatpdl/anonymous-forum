@@ -12,6 +12,11 @@ const postSchema = new mongoose.Schema({
   likes: {
     type: Number,
     default: 0
+  },
+  repostOf:{
+  type: mongoose.Schema.Types.ObjectId,
+  ref: 'Post',
+  default: null
   }
 }, { timestamps: true });
 
