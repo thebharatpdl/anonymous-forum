@@ -6,8 +6,8 @@ import {
   TouchableOpacity,
   ActivityIndicator,
 } from "react-native";
-import axios from "axios";
-import { API_URL } from "../src/config";
+
+import { likePost, repostPost } from "../src/services/api";
 
 type Post = {
   _id: string;
@@ -21,64 +21,56 @@ export default function PostCard({ post }: { post: Post }) {
   const [likes, setLikes] = useState(post.likes || 0);
   const [liked, setLiked] = useState(false);
   const [reposted, setReposted] = useState(false);
-  const [likeLoading, setLikeLoading] = useState(false);
-  const [repostLoading, setRepostLoading] = useState(false);
+  const [loadingLike, setLoadingLike] = useState(false);
+  const [loadingRepost, setLoadingRepost] = useState(false);
 
-  // ❤️ LIKE (Optimistic UI)
+  // ❤️ LIKE
   const handleLike = async () => {
-    if (likeLoading || liked) return;
+    if (loadingLike || liked) return;
 
-    setLikes((prev) => prev + 1);
     setLiked(true);
+    setLikes((prev) => prev + 1);
 
     try {
-      setLikeLoading(true);
+      setLoadingLike(true);
 
-      const res = await axios.post(
-        `${API_URL}/like/${post._id}`
-      );
+      const data = await likePost(post._id);
 
-      setLikes(res.data.likes);
+      setLikes(data.likes); // ✅ correct
     } catch (err) {
       console.log("Like error:", err);
 
       // rollback
-      setLikes((prev) => prev - 1);
       setLiked(false);
+      setLikes((prev) => prev - 1);
     } finally {
-      setLikeLoading(false);
+      setLoadingLike(false);
     }
   };
 
-  // 🔁 REPOST (Optimistic UI)
+  // 🔁 REPOST
   const handleRepost = async () => {
-    if (repostLoading || reposted) return;
+    if (loadingRepost || reposted) return;
 
     setReposted(true);
 
     try {
-      setRepostLoading(true);
+      setLoadingRepost(true);
 
-      await axios.post(
-        `${API_URL}/repost/${post._id}`
-      );
-
+      await repostPost(post._id); // ✅ use service only
     } catch (err) {
       console.log("Repost error:", err);
       setReposted(false);
     } finally {
-      setRepostLoading(false);
+      setLoadingRepost(false);
     }
   };
 
-  // 🎨 Avatar generator
   const avatarColor = getColor(post.username);
   const avatarLetter = post.username?.charAt(0).toUpperCase() || "A";
 
   return (
     <View style={styles.card}>
-
-      {/* REPOST TAG */}
       {post.repostOf && (
         <Text style={styles.repostTag}>🔁 Reposted</Text>
       )}
@@ -91,7 +83,7 @@ export default function PostCard({ post }: { post: Post }) {
 
         <View>
           <Text style={styles.username}>{post.username}</Text>
-          <Text style={styles.time}>Anonymous user</Text>
+          <Text style={styles.time}>Anonymous</Text>
         </View>
       </View>
 
@@ -105,15 +97,15 @@ export default function PostCard({ post }: { post: Post }) {
         <TouchableOpacity
           style={styles.btn}
           onPress={handleLike}
-          disabled={likeLoading}
+          disabled={loadingLike}
         >
-          {likeLoading ? (
+          {loadingLike ? (
             <ActivityIndicator size="small" color="red" />
           ) : (
             <Text style={styles.icon}>{liked ? "❤️" : "🤍"}</Text>
           )}
 
-          <Text style={[styles.text, liked && styles.activeText]}>
+          <Text style={styles.text}>
             {likes} Like{likes !== 1 ? "s" : ""}
           </Text>
         </TouchableOpacity>
@@ -122,9 +114,9 @@ export default function PostCard({ post }: { post: Post }) {
         <TouchableOpacity
           style={styles.btn}
           onPress={handleRepost}
-          disabled={repostLoading}
+          disabled={loadingRepost}
         >
-          {repostLoading ? (
+          {loadingRepost ? (
             <ActivityIndicator size="small" color="green" />
           ) : (
             <Text style={styles.icon}>
@@ -132,7 +124,7 @@ export default function PostCard({ post }: { post: Post }) {
             </Text>
           )}
 
-          <Text style={[styles.text, reposted && styles.activeText]}>
+          <Text style={styles.text}>
             {reposted ? "Reposted" : "Repost"}
           </Text>
         </TouchableOpacity>
@@ -142,22 +134,17 @@ export default function PostCard({ post }: { post: Post }) {
   );
 }
 
-/* 🎨 COLOR GENERATOR */
+/* COLOR */
 function getColor(str: string) {
-  const colors = [
-    "#FFB3C6", "#A8D8EA", "#B5EAD7",
-    "#FFDAC1", "#C7CEEA", "#F9C74F"
-  ];
-
+  const colors = ["#FFB3C6", "#A8D8EA", "#B5EAD7", "#FFDAC1"];
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
     hash = str.charCodeAt(i) + ((hash << 5) - hash);
   }
-
   return colors[Math.abs(hash) % colors.length];
 }
 
-/* 🎨 STYLES */
+/* STYLES */
 const styles = StyleSheet.create({
   card: {
     backgroundColor: "#fff",
@@ -166,46 +153,27 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     elevation: 3,
   },
-
   repostTag: {
     fontSize: 12,
     color: "green",
     marginBottom: 5,
   },
-
   header: {
     flexDirection: "row",
-    alignItems: "center",
     marginBottom: 10,
   },
-
   avatar: {
     width: 40,
     height: 40,
     borderRadius: 20,
+    marginRight: 10,
     justifyContent: "center",
     alignItems: "center",
-    marginRight: 10,
   },
-
-  avatarText: {
-    color: "#fff",
-    fontWeight: "bold",
-  },
-
-  username: {
-    fontWeight: "bold",
-  },
-
-  time: {
-    fontSize: 12,
-    color: "gray",
-  },
-
-  content: {
-    fontSize: 15,
-    marginVertical: 10,
-  },
+  avatarText: { color: "#fff", fontWeight: "bold" },
+  username: { fontWeight: "bold" },
+  time: { fontSize: 12, color: "gray" },
+  content: { fontSize: 15, marginVertical: 10 },
 
   actions: {
     flexDirection: "row",
@@ -226,10 +194,5 @@ const styles = StyleSheet.create({
   text: {
     fontSize: 13,
     color: "gray",
-  },
-
-  activeText: {
-    color: "#000",
-    fontWeight: "600",
   },
 });

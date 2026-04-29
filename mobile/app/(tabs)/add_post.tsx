@@ -11,14 +11,18 @@ import {
 } from "react-native";
 import axios from "axios";
 import { API_URL } from "../../src/config";
-import { useFeed } from "../../context/FeedContext";
+
+// ✅ Redux
+import { useAppDispatch } from "../../src/redux/hooks";
+import { addPost } from "../../src/redux/postsSlice";
 
 const MAX_CHARS = 280;
 
 export default function CreatePostScreen() {
+  const dispatch = useAppDispatch();
+
   const [content, setContent] = useState("");
   const [loading, setLoading] = useState(false);
-  const { triggerRefresh } = useFeed();
 
   const remainingChars = MAX_CHARS - content.length;
   const isDisabled = content.trim().length === 0 || loading;
@@ -29,15 +33,15 @@ export default function CreatePostScreen() {
     try {
       setLoading(true);
 
-      await axios.post(API_URL, {
+      const res = await axios.post(API_URL, {
         content,
         username: "anon_user",
       });
 
+      // 🚀 instantly update Redux store (NO refresh needed)
+      dispatch(addPost(res.data));
+
       setContent("");
-
-      triggerRefresh(); // refresh feed instantly
-
     } catch (error) {
       console.log(error);
     } finally {
