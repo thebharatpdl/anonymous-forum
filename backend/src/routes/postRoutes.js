@@ -11,9 +11,17 @@ router.post("/", async (req, res) => {
     });
 
     const savedPost = await newPost.save();
-    res.json(savedPost);
+    
+    // Emit real-time update
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("new_post", savedPost);
+    }
+    
+    res.status(201).json(savedPost); // Use 201 status for created
   } catch (err) {
-    res.status(500).json(err);
+    console.error("Create post error:", err);
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -23,7 +31,8 @@ router.get("/", async (req, res) => {
     const posts = await Post.find().sort({ createdAt: -1 });
     res.json(posts);
   } catch (err) {
-    res.status(500).json(err);
+    console.error("Get posts error:", err);
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -38,17 +47,25 @@ router.post("/like/:id", async (req, res) => {
 
     // increase like count
     post.likes = (post.likes || 0) + 1;
-
     const updatedPost = await post.save();
-
-    res.json(updatedPost);
+    
+    // Emit real-time like update
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("like_updated", { 
+        postId: updatedPost._id.toString(), 
+        likes: updatedPost.likes 
+      });
+    }
+    
+    res.json({ likes: updatedPost.likes });
   } catch (err) {
-    res.status(500).json(err);
+    console.error("Like post error:", err);
+    res.status(500).json({ error: err.message });
   }
 });
 
-
-// REPOST
+// REPOST - FIXED VERSION
 router.post("/repost/:id", async (req, res) => {
   try {
     const originalPost = await Post.findById(req.params.id);
@@ -59,21 +76,23 @@ router.post("/repost/:id", async (req, res) => {
 
     const repost = new Post({
       content: originalPost.content,
-      username: "anon_user",
+      username: req.body.username || "anon_user",
       repostOf: originalPost._id,
     });
 
-    const saved = await repost.save();
-
-    res.json(saved);
+    const savedRepost = await repost.save();
+    
+    // Emit real-time update for the repost
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("new_post", savedRepost);
+    }
+    
+    res.status(201).json(savedRepost);
   } catch (err) {
-    res.status(500).json(err);
+    console.error("Repost error:", err);
+    res.status(500).json({ error: err.message });
   }
 });
-
-
-
-
-
 
 module.exports = router;

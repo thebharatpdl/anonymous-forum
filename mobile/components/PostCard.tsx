@@ -4,195 +4,144 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  ActivityIndicator,
+  Alert,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { useAppDispatch } from "../src/redux/hooks";
+import { likePostAsync, Post } from "../src/redux/postsSlice";
+import axios from "axios";
+import { API_URL } from "../src/config";
 
-import { likePost, repostPost } from "../src/services/api";
-
-type Post = {
-  _id: string;
-  content: string;
-  username: string;
-  likes?: number;
-  repostOf?: string | null;
+type PostCardProps = {
+  post: Post;
 };
 
-export default function PostCard({ post }: { post: Post }) {
-  const [likes, setLikes] = useState(post.likes || 0);
-  const [liked, setLiked] = useState(false);
-  const [reposted, setReposted] = useState(false);
-  const [loadingLike, setLoadingLike] = useState(false);
-  const [loadingRepost, setLoadingRepost] = useState(false);
+export default function PostCard({ post }: PostCardProps) {
+  const dispatch = useAppDispatch();
+  const [isLiking, setIsLiking] = useState(false);
+  const [isReposting, setIsReposting] = useState(false);
 
-  // ❤️ LIKE
   const handleLike = async () => {
-    if (loadingLike || liked) return;
-
-    setLiked(true);
-    setLikes((prev) => prev + 1);
-
+    if (isLiking) return;
+    
+    setIsLiking(true);
     try {
-      setLoadingLike(true);
-
-      const data = await likePost(post._id);
-
-      setLikes(data.likes); // ✅ correct
-    } catch (err) {
-      console.log("Like error:", err);
-
-      // rollback
-      setLiked(false);
-      setLikes((prev) => prev - 1);
+      await dispatch(likePostAsync(post._id)).unwrap();
+    } catch (error) {
+      console.error("Like error:", error);
+      Alert.alert("Error", "Failed to like post");
     } finally {
-      setLoadingLike(false);
+      setIsLiking(false);
     }
   };
 
-  // 🔁 REPOST
   const handleRepost = async () => {
-    if (loadingRepost || reposted) return;
-
-    setReposted(true);
-
+    if (isReposting) return;
+    
+    setIsReposting(true);
     try {
-      setLoadingRepost(true);
-
-      await repostPost(post._id); // ✅ use service only
-    } catch (err) {
-      console.log("Repost error:", err);
-      setReposted(false);
+      const response = await axios.post(`${API_URL}/repost/${post._id}`, {
+        username: "anon_user"
+      });
+      
+      if (response.data) {
+        Alert.alert("Success", "Post reposted!");
+      }
+    } catch (error: any) {
+      console.error("Repost error:", error);
+      const errorMessage = error.response?.data?.error || "Failed to repost";
+      Alert.alert("Error", errorMessage);
     } finally {
-      setLoadingRepost(false);
+      setIsReposting(false);
     }
   };
-
-  const avatarColor = getColor(post.username);
-  const avatarLetter = post.username?.charAt(0).toUpperCase() || "A";
 
   return (
     <View style={styles.card}>
-      {post.repostOf && (
-        <Text style={styles.repostTag}>🔁 Reposted</Text>
-      )}
-
-      {/* HEADER */}
       <View style={styles.header}>
-        <View style={[styles.avatar, { backgroundColor: avatarColor }]}>
-          <Text style={styles.avatarText}>{avatarLetter}</Text>
-        </View>
-
-        <View>
-          <Text style={styles.username}>{post.username}</Text>
-          <Text style={styles.time}>Anonymous</Text>
-        </View>
+        <Text style={styles.username}>{post.username}</Text>
+        <Text style={styles.time}>
+          {post.createdAt ? new Date(post.createdAt).toLocaleDateString() : "Just now"}
+        </Text>
       </View>
-
-      {/* CONTENT */}
+      
       <Text style={styles.content}>{post.content}</Text>
-
-      {/* ACTIONS */}
+      
       <View style={styles.actions}>
-
-        {/* LIKE */}
-        <TouchableOpacity
-          style={styles.btn}
+        <TouchableOpacity 
+          style={styles.actionButton} 
           onPress={handleLike}
-          disabled={loadingLike}
+          disabled={isLiking}
         >
-          {loadingLike ? (
-            <ActivityIndicator size="small" color="red" />
-          ) : (
-            <Text style={styles.icon}>{liked ? "❤️" : "🤍"}</Text>
-          )}
-
-          <Text style={styles.text}>
-            {likes} Like{likes !== 1 ? "s" : ""}
-          </Text>
+          <Ionicons 
+            name="heart-outline" 
+            size={22} 
+            color="#FF6B6B" 
+          />
+          <Text style={styles.actionText}>{post.likes || 0}</Text>
         </TouchableOpacity>
-
-        {/* REPOST */}
-        <TouchableOpacity
-          style={styles.btn}
+        
+        <TouchableOpacity 
+          style={styles.actionButton} 
           onPress={handleRepost}
-          disabled={loadingRepost}
+          disabled={isReposting}
         >
-          {loadingRepost ? (
-            <ActivityIndicator size="small" color="green" />
-          ) : (
-            <Text style={styles.icon}>
-              {reposted ? "🔁" : "🔄"}
-            </Text>
-          )}
-
-          <Text style={styles.text}>
-            {reposted ? "Reposted" : "Repost"}
-          </Text>
+          <Ionicons 
+            name="repeat-outline" 
+            size={20} 
+            color="#4CAF50" 
+          />
+          <Text style={styles.actionText}>Repost</Text>
         </TouchableOpacity>
-
       </View>
     </View>
   );
 }
 
-/* COLOR */
-function getColor(str: string) {
-  const colors = ["#FFB3C6", "#A8D8EA", "#B5EAD7", "#FFDAC1"];
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  return colors[Math.abs(hash) % colors.length];
-}
-
-/* STYLES */
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: "#fff",
-    margin: 10,
-    padding: 15,
+    backgroundColor: "#FFFFFF",
     borderRadius: 12,
-    elevation: 3,
-  },
-  repostTag: {
-    fontSize: 12,
-    color: "green",
-    marginBottom: 5,
+    padding: 16,
+    marginBottom: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
   header: {
     flexDirection: "row",
-    marginBottom: 10,
+    justifyContent: "space-between",
+    marginBottom: 12,
   },
-  avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    marginRight: 10,
-    justifyContent: "center",
-    alignItems: "center",
+  username: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#6C63FF",
   },
-  avatarText: { color: "#fff", fontWeight: "bold" },
-  username: { fontWeight: "bold" },
-  time: { fontSize: 12, color: "gray" },
-  content: { fontSize: 15, marginVertical: 10 },
-
+  time: {
+    fontSize: 12,
+    color: "#999",
+  },
+  content: {
+    fontSize: 16,
+    color: "#333",
+    lineHeight: 22,
+    marginBottom: 12,
+  },
   actions: {
     flexDirection: "row",
-    justifyContent: "space-around",
-    marginTop: 10,
+    alignItems: "center",
+    gap: 20,
   },
-
-  btn: {
+  actionButton: {
     flexDirection: "row",
     alignItems: "center",
+    gap: 6,
   },
-
-  icon: {
-    fontSize: 18,
-    marginRight: 5,
-  },
-
-  text: {
-    fontSize: 13,
-    color: "gray",
+  actionText: {
+    fontSize: 14,
+    color: "#666",
   },
 });

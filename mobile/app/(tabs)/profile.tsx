@@ -1,10 +1,16 @@
-import React, { useMemo, useCallback } from "react";
+import React, { useMemo, useCallback, useState } from "react";
 import {
-  View, Text, StyleSheet, FlatList,
-  SafeAreaView, StatusBar,
+  View, Text, StyleSheet, FlatList, StatusBar, TouchableOpacity,
+  Share, Animated,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useAppSelector } from "../../src/redux/hooks";
 import PostCard from "../../components/PostCard";
+import StatCard from "../../components/StatCard";
+import AvatarBadge from "../../components/AvatarBadge";
+import EmptyState from "../../components/EmptyState";
+import { SafeAreaView } from "react-native-safe-area-context";
+
 
 type Post = {
   _id: string;
@@ -14,23 +20,41 @@ type Post = {
   repostOf?: string | null;
 };
 
+type FilterType = "all" | "original" | "reposts";
+
 const ACCENT = "#6C63FF";
 
 export default function ProfileScreen() {
   const posts = useAppSelector((state) => state.posts.posts);
   const username = "anon_user";
+  const [filter, setFilter] = useState<FilterType>("all");
 
   const userPosts = useMemo(
     () => posts.filter((p) => p.username === username),
     [posts]
   );
 
+  const filteredPosts = useMemo(() => {
+    if (filter === "original") return userPosts.filter((p) => !p.repostOf);
+    if (filter === "reposts") return userPosts.filter((p) => !!p.repostOf);
+    return userPosts;
+  }, [userPosts, filter]);
+
   const totalLikes = useMemo(
     () => userPosts.reduce((sum, p) => sum + (p.likes || 0), 0),
     [userPosts]
   );
 
-  const avatarLetter = username.charAt(0).toUpperCase();
+  const totalReposts = useMemo(
+    () => userPosts.filter((p) => p.repostOf).length,
+    [userPosts]
+  );
+
+  const handleShare = async () => {
+    await Share.share({
+      message: `Check out ${username}'s anonymous feed! 🌐`,
+    });
+  };
 
   const renderItem = useCallback(
     ({ item }: { item: Post }) => <PostCard post={item} />,
@@ -39,32 +63,41 @@ export default function ProfileScreen() {
 
   const ListHeader = (
     <>
-      {/* ── HERO BANNER ── */}
+      {/* ── HERO ── */}
       <View style={styles.hero}>
-        <View style={styles.heroAvatar}>
-          <Text style={styles.heroAvatarText}>{avatarLetter}</Text>
-        </View>
+        <TouchableOpacity style={styles.shareBtn} onPress={handleShare}>
+          <Ionicons name="share-outline" size={20} color="#fff" />
+        </TouchableOpacity>
+
+        <AvatarBadge username={username} size={80} />
+
         <Text style={styles.heroName}>{username}</Text>
-        <Text style={styles.heroSub}>Anonymous user</Text>
-      </View>
+        <Text style={styles.heroSub}>Anonymous · Since forever</Text>
 
-      {/* ── STATS CARD (floats over banner) ── */}
-      <View style={styles.statsCard}>
-        <View style={styles.statItem}>
-          <Text style={styles.statNumber}>{userPosts.length}</Text>
-          <Text style={styles.statLabel}>Posts</Text>
-        </View>
-        <View style={styles.statDivider} />
-        <View style={styles.statItem}>
-          <Text style={styles.statNumber}>{totalLikes}</Text>
-          <Text style={styles.statLabel}>Likes</Text>
+        {/* ── STATS ROW ── */}
+        <View style={styles.statsRow}>
+          <StatCard value={userPosts.length} label="Posts" />
+          <View style={styles.statSep} />
+          <StatCard value={totalLikes} label="Likes" />
+          <View style={styles.statSep} />
+          <StatCard value={totalReposts} label="Reposts" />
         </View>
       </View>
 
-      {/* ── SECTION LABEL ── */}
-      {userPosts.length > 0 && (
-        <Text style={styles.sectionLabel}>YOUR POSTS</Text>
-      )}
+      {/* ── FILTER TABS ── */}
+      <View style={styles.filterRow}>
+        {(["all", "original", "reposts"] as FilterType[]).map((f) => (
+          <TouchableOpacity
+            key={f}
+            style={[styles.filterTab, filter === f && styles.filterTabActive]}
+            onPress={() => setFilter(f)}
+          >
+            <Text style={[styles.filterLabel, filter === f && styles.filterLabelActive]}>
+              {f.charAt(0).toUpperCase() + f.slice(1)}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
     </>
   );
 
@@ -73,21 +106,25 @@ export default function ProfileScreen() {
       <StatusBar barStyle="light-content" backgroundColor={ACCENT} />
 
       <FlatList
-        data={userPosts}
+        data={filteredPosts}
         keyExtractor={(item) => item._id}
         renderItem={renderItem}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={ListHeader}
         ListEmptyComponent={
-          <View style={styles.emptyBox}>
-            <Text style={styles.emptyEmoji}>🚀</Text>
-            <Text style={styles.emptyTitle}>No posts yet</Text>
-            <Text style={styles.emptySub}>Start sharing your thoughts</Text>
-          </View>
+          <EmptyState
+            emoji="🚀"
+            title={filter === "reposts" ? "No reposts yet" : "No posts yet"}
+            subtitle={
+              filter === "reposts"
+                ? "Repost something from the feed"
+                : "Start sharing your thoughts anonymously"
+            }
+          />
         }
         ListFooterComponent={
-          userPosts.length > 0
+          filteredPosts.length > 0
             ? <Text style={styles.footer}>End of your posts ✨</Text>
             : null
         }
@@ -97,109 +134,87 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: "#F5F5FA",
-  },
-  listContent: {
-    paddingBottom: 100,
-  },
+  safeArea: { flex: 1, backgroundColor: "#F5F5FA" },
+  listContent: { paddingBottom: 100 },
 
-  /* ── HERO ── */
   hero: {
     backgroundColor: ACCENT,
-    paddingTop: 32,
-    paddingBottom: 36,
+    paddingTop: 20,
+    paddingBottom: 28,
     alignItems: "center",
+    paddingHorizontal: 20,
   },
-  heroAvatar: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: "#fff",
+  shareBtn: {
+    position: "absolute",
+    top: 16,
+    right: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.2)",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 10,
-    shadowColor: "#000",
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
-  },
-  heroAvatarText: {
-    fontSize: 28,
-    fontWeight: "800",
-    color: ACCENT,
   },
   heroName: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: "800",
     color: "#fff",
+    marginTop: 10,
     letterSpacing: -0.3,
   },
   heroSub: {
     fontSize: 13,
     color: "rgba(255,255,255,0.65)",
-    marginTop: 3,
+    marginTop: 4,
+    marginBottom: 20,
   },
 
-  /* ── STATS CARD ── */
-  statsCard: {
+  statsRow: {
     flexDirection: "row",
-    backgroundColor: "#fff",
+    backgroundColor: "rgba(255,255,255,0.15)",
     borderRadius: 16,
-    marginHorizontal: 24,
-    marginTop: -22,
-    paddingVertical: 16,
-    shadowColor: ACCENT,
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
-    borderWidth: 1,
-    borderColor: "#EAEAF0",
+    paddingVertical: 14,
+    paddingHorizontal: 10,
+    width: "100%",
   },
-  statItem: {
-    flex: 1,
-    alignItems: "center",
-  },
-  statNumber: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: "#1A1A2E",
-    letterSpacing: -0.5,
-  },
-  statLabel: {
-    fontSize: 12,
-    color: "#9999AA",
-    marginTop: 2,
-    fontWeight: "500",
-  },
-  statDivider: {
+  statSep: {
     width: 1,
-    backgroundColor: "#EAEAF0",
+    backgroundColor: "rgba(255,255,255,0.25)",
     marginVertical: 4,
   },
 
-  /* ── SECTION LABEL ── */
-  sectionLabel: {
-    fontSize: 11,
-    fontWeight: "700",
+  filterRow: {
+    flexDirection: "row",
+    marginHorizontal: 16,
+    marginTop: 16,
+    marginBottom: 4,
+    backgroundColor: "#EEEEF8",
+    borderRadius: 12,
+    padding: 4,
+  },
+  filterTab: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: "center",
+    borderRadius: 10,
+  },
+  filterTabActive: {
+    backgroundColor: "#fff",
+    shadowColor: ACCENT,
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  filterLabel: {
+    fontSize: 13,
+    fontWeight: "600",
     color: "#9999AA",
-    letterSpacing: 1,
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 6,
+  },
+  filterLabelActive: {
+    color: ACCENT,
   },
 
-  /* ── EMPTY / FOOTER ── */
-  emptyBox: {
-    alignItems: "center",
-    paddingTop: 60,
-  },
-  emptyEmoji: { fontSize: 48, marginBottom: 12 },
-  emptyTitle: { fontSize: 18, fontWeight: "700", color: "#1A1A2E", marginBottom: 6 },
-  emptySub: { fontSize: 14, color: "#9999AA" },
   footer: {
     textAlign: "center",
     paddingVertical: 24,
