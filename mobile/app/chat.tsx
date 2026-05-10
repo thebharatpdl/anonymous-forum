@@ -1,0 +1,513 @@
+// mobile/app/chat.tsx
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  TextInput,
+  TouchableOpacity,
+  KeyboardAvoidingView,
+  Platform,
+  ActivityIndicator,
+  Animated,
+  Pressable,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import socketService from "../services/socket";
+import { getOrCreateUserId } from "../services/userServices";
+
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+type Message = {
+  _id?: string;
+  content: string;
+  senderId: string;
+  senderName: string;
+  createdAt: string;
+  readBy: string[];
+};
+
+type TypingEvent = {
+  userId: string;
+  isTyping: boolean;
+};
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+const formatTime = (iso: string) =>
+  new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+// ─── Typing Dots ─────────────────────────────────────────────────────────────
+
+function TypingDots() {
+  const dots = [useRef(new Animated.Value(0)).current, useRef(new Animated.Value(0)).current, useRef(new Animated.Value(0)).current];
+
+  useEffect(() => {
+    const animations = dots.map((dot, i) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.delay(i * 150),
+          Animated.timing(dot, { toValue: 1, duration: 300, useNativeDriver: true }),
+          Animated.timing(dot, { toValue: 0, duration: 300, useNativeDriver: true }),
+          Animated.delay(600 - i * 150),
+        ])
+      )
+    );
+    animations.forEach((a) => a.start());
+    return () => animations.forEach((a) => a.stop());
+  }, []);
+
+  return (
+    <View style={styles.typingBubble}>
+      <View style={styles.typingDots}>
+        {dots.map((dot, i) => (
+          <Animated.View
+            key={i}
+            style={[styles.dot, { opacity: dot, transform: [{ translateY: dot.interpolate({ inputRange: [0, 1], outputRange: [0, -3] }) }] }]}
+          />
+        ))}
+      </View>
+    </View>
+  );
+}
+
+// ─── Message Bubble ───────────────────────────────────────────────────────────
+
+function MessageBubble({ item, isMyMessage, prevSenderId }: { item: Message; isMyMessage: boolean; prevSenderId?: string }) {
+  const showName = !isMyMessage && item.senderId !== prevSenderId;
+  const isRead = item.readBy.length > 1;
+
+  return (
+    <View style={[styles.messageRow, isMyMessage ? styles.myMessageRow : styles.otherMessageRow]}>
+      {!isMyMessage && (
+        <View style={[styles.avatarSmall, { opacity: showName ? 1 : 0 }]}>
+          <Text style={styles.avatarSmallText}>{item.senderName?.[0]?.toUpperCase() ?? "A"}</Text>
+        </View>
+      )}
+      <View style={[styles.bubbleWrapper, isMyMessage ? { alignItems: "flex-end" } : { alignItems: "flex-start" }]}>
+        {showName && <Text style={styles.senderLabel}>{item.senderName}</Text>}
+        <View style={[styles.bubble, isMyMessage ? styles.myBubble : styles.otherBubble]}>
+          <Text style={[styles.bubbleText, isMyMessage ? styles.myBubbleText : styles.otherBubbleText]}>
+            {item.content}
+          </Text>
+        </View>
+        <View style={styles.metaRow}>
+          <Text style={styles.timeText}>{formatTime(item.createdAt)}</Text>
+          {isMyMessage && (
+            <View style={styles.readReceipt}>
+              <Ionicons
+                name={isRead ? "checkmark-done" : "checkmark"}
+                size={12}
+                color={isRead ? "#6C63FF" : "#9CA3AF"}
+              />
+            </View>
+          )}
+        </View>
+      </View>
+    </View>
+  );
+}
+
+// ─── Main Screen ─────────────────────────────────────────────────────────────
+
+export default function ChatScreen() {
+  const { roomId, otherUserName } = useLocalSearchParams<{
+    roomId: string;
+    otherUserName?: string;
+  }>();
+  const router = useRouter();
+
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [inputText, setInputText] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [userId, setUserId] = useState("");
+  const [isTyping, setIsTyping] = useState(false);
+  const [otherUserTyping, setOtherUserTyping] = useState(false);
+
+  const flatListRef = useRef<FlatList>(null);
+  const typingTimeoutRef = useRef<any>(null);
+  const inputRef = useRef<TextInput>(null);
+
+  // ── Init ──────────────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    initializeChat();
+    return () => cleanupChat();
+  }, []);
+
+  const initializeChat = async () => {
+    const uid = await getOrCreateUserId();
+    setUserId(uid);
+    socketService.emit("join_chat", { roomId, userId: uid });
+    await fetchChatHistory();
+    setLoading(false);
+  };
+
+  const fetchChatHistory = async () => {
+    try {
+      const res = await fetch(`http://192.168.1.69:5000/api/chat/history/${roomId}`);
+      const data = await res.json();
+      setMessages(data);
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 100);
+    } catch (err) {
+      console.log("Error fetching history:", err);
+    }
+  };
+
+  const cleanupChat = () => {
+    socketService.off("new_message");
+    socketService.off("user_typing");
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+  };
+
+  // ── Socket listeners ──────────────────────────────────────────────────────
+
+  useEffect(() => {
+    socketService.on("new_message", (message: Message) => {
+      setMessages((prev) => [...prev, message]);
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+    });
+
+    socketService.on("user_typing", (data: TypingEvent) => {
+      if (data.userId !== userId) setOtherUserTyping(data.isTyping);
+    });
+
+    // Mark messages as read when other user's messages arrive
+    socketService.on("messages_read", ({ readerId }: { readerId: string }) => {
+      if (readerId !== userId) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.senderId === userId && !m.readBy.includes(readerId)
+              ? { ...m, readBy: [...m.readBy, readerId] }
+              : m
+          )
+        );
+      }
+    });
+
+    return () => {
+      socketService.off("new_message");
+      socketService.off("user_typing");
+      socketService.off("messages_read");
+    };
+  }, [userId]);
+
+  // ── Actions ───────────────────────────────────────────────────────────────
+
+  const handleSend = async () => {
+    const text = inputText.trim();
+    if (!text || sending) return;
+
+    setSending(true);
+    setInputText("");
+
+    // Stop typing indicator
+    if (isTyping) {
+      setIsTyping(false);
+      socketService.emit("typing", { roomId, userId, isTyping: false });
+    }
+
+    socketService.emit("send_message", {
+      roomId,
+      message: text,
+      senderId: userId,
+      senderName: "Anonymous",
+    });
+
+    setSending(false);
+  };
+
+  const handleTyping = (text: string) => {
+    setInputText(text);
+
+    if (!isTyping && text.length > 0) {
+      setIsTyping(true);
+      socketService.emit("typing", { roomId, userId, isTyping: true });
+    }
+
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+
+    if (text.length > 0) {
+      typingTimeoutRef.current = setTimeout(() => {
+        setIsTyping(false);
+        socketService.emit("typing", { roomId, userId, isTyping: false });
+      }, 2000);
+    } else {
+      setIsTyping(false);
+      socketService.emit("typing", { roomId, userId, isTyping: false });
+    }
+  };
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+
+  const renderItem = useCallback(
+    ({ item, index }: { item: Message; index: number }) => {
+      const isMyMessage = item.senderId === userId;
+      const prevSenderId = index > 0 ? messages[index - 1].senderId : undefined;
+      return (
+        <MessageBubble item={item} isMyMessage={isMyMessage} prevSenderId={prevSenderId} />
+      );
+    },
+    [userId, messages]
+  );
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.loader}>
+        <ActivityIndicator size="large" color="#6C63FF" />
+        <Text style={styles.loaderText}>Loading messages…</Text>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
+      {/* ── Header ── */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.headerBack} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <Ionicons name="arrow-back" size={22} color="#1C1E21" />
+        </TouchableOpacity>
+
+        <View style={styles.headerCenter}>
+          <View style={styles.headerAvatar}>
+            <Text style={styles.headerAvatarText}>
+              {(otherUserName ?? "A")[0].toUpperCase()}
+            </Text>
+            <View style={styles.onlineDot} />
+          </View>
+          <View>
+            <Text style={styles.headerName}>{otherUserName ?? "Anonymous"}</Text>
+            <Text style={styles.headerStatus}>{otherUserTyping ? "Typing…" : "Active now"}</Text>
+          </View>
+        </View>
+
+        <TouchableOpacity style={styles.headerAction} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <Ionicons name="ellipsis-vertical" size={20} color="#1C1E21" />
+        </TouchableOpacity>
+      </View>
+
+      {/* ── Messages ── */}
+      <FlatList
+        ref={flatListRef}
+        data={messages}
+        keyExtractor={(item, i) => item._id ?? i.toString()}
+        renderItem={renderItem}
+        contentContainerStyle={styles.messagesList}
+        onLayout={() => flatListRef.current?.scrollToEnd({ animated: false })}
+        showsVerticalScrollIndicator={false}
+        ListEmptyComponent={
+          <View style={styles.emptyChat}>
+            <View style={styles.emptyChatIcon}>
+              <Ionicons name="chatbubbles-outline" size={32} color="#6C63FF" />
+            </View>
+            <Text style={styles.emptyChatText}>Say hello!</Text>
+            <Text style={styles.emptyChatSub}>This is the beginning of your conversation.</Text>
+          </View>
+        }
+        ListFooterComponent={otherUserTyping ? <TypingDots /> : null}
+      />
+
+      {/* ── Input ── */}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
+      >
+        <SafeAreaView edges={["bottom"]} style={styles.inputSafeArea}>
+          <View style={styles.inputBar}>
+            <TextInput
+              ref={inputRef}
+              style={styles.input}
+              placeholder="Message…"
+              placeholderTextColor="#B0B3B8"
+              value={inputText}
+              onChangeText={handleTyping}
+              multiline
+              maxLength={1000}
+              returnKeyType="default"
+            />
+            <Pressable
+              style={({ pressed }) => [
+                styles.sendBtn,
+                inputText.trim() ? styles.sendBtnActive : styles.sendBtnInactive,
+                pressed && { opacity: 0.75 },
+              ]}
+              onPress={handleSend}
+              disabled={!inputText.trim() || sending}
+            >
+              <Ionicons name="send" size={18} color={inputText.trim() ? "#FFFFFF" : "#B0B3B8"} />
+            </Pressable>
+          </View>
+        </SafeAreaView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
+}
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: "#F4F5F9" },
+
+  loader: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#F4F5F9" },
+  loaderText: { marginTop: 12, fontSize: 14, color: "#65676B" },
+
+  // Header
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 8,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#E4E6EB",
+    gap: 8,
+  },
+  headerBack: { padding: 8 },
+  headerCenter: { flex: 1, flexDirection: "row", alignItems: "center", gap: 10 },
+  headerAvatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "#EEF2FF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerAvatarText: { fontSize: 16, fontWeight: "700", color: "#6C63FF" },
+  onlineDot: {
+    position: "absolute",
+    bottom: 1,
+    right: 1,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "#22C55E",
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
+  },
+  headerName: { fontSize: 15, fontWeight: "700", color: "#1C1E21" },
+  headerStatus: { fontSize: 11, color: "#65676B", marginTop: 1 },
+  headerAction: { padding: 8 },
+
+  // Messages
+  messagesList: { paddingHorizontal: 12, paddingTop: 16, paddingBottom: 8 },
+
+  messageRow: {
+    flexDirection: "row",
+    marginBottom: 4,
+    alignItems: "flex-end",
+    gap: 6,
+  },
+  myMessageRow: { justifyContent: "flex-end" },
+  otherMessageRow: { justifyContent: "flex-start" },
+
+  avatarSmall: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "#EEF2FF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
+  },
+  avatarSmallText: { fontSize: 11, fontWeight: "700", color: "#6C63FF" },
+
+  bubbleWrapper: { maxWidth: "74%" },
+  senderLabel: { fontSize: 11, color: "#6C63FF", fontWeight: "600", marginBottom: 3, marginLeft: 4 },
+
+  bubble: {
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 18,
+  },
+  myBubble: {
+    backgroundColor: "#6C63FF",
+    borderBottomRightRadius: 4,
+  },
+  otherBubble: {
+    backgroundColor: "#FFFFFF",
+    borderBottomLeftRadius: 4,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#E4E6EB",
+  },
+  bubbleText: { fontSize: 14.5, lineHeight: 20 },
+  myBubbleText: { color: "#FFFFFF" },
+  otherBubbleText: { color: "#1C1E21" },
+
+  metaRow: { flexDirection: "row", alignItems: "center", gap: 3, marginTop: 3, marginHorizontal: 4 },
+  timeText: { fontSize: 10, color: "#9CA3AF" },
+  readReceipt: {},
+
+  // Typing
+  typingBubble: {
+    alignSelf: "flex-start",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    borderBottomLeftRadius: 4,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginLeft: 34,
+    marginBottom: 4,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#E4E6EB",
+  },
+  typingDots: { flexDirection: "row", gap: 4, alignItems: "center" },
+  dot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: "#9CA3AF",
+  },
+
+  // Empty
+  emptyChat: { flex: 1, alignItems: "center", paddingTop: 60, paddingHorizontal: 40 },
+  emptyChatIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "#EEF2FF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
+  },
+  emptyChatText: { fontSize: 16, fontWeight: "700", color: "#1C1E21" },
+  emptyChatSub: { fontSize: 13, color: "#65676B", textAlign: "center", marginTop: 6 },
+
+  // Input
+  inputSafeArea: { backgroundColor: "#FFFFFF" },
+  inputBar: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "#E4E6EB",
+    gap: 8,
+  },
+  input: {
+    flex: 1,
+    backgroundColor: "#F0F2F5",
+    borderRadius: 22,
+    paddingHorizontal: 16,
+    paddingTop: Platform.OS === "ios" ? 10 : 8,
+    paddingBottom: Platform.OS === "ios" ? 10 : 8,
+    fontSize: 14.5,
+    color: "#1C1E21",
+    maxHeight: 120,
+    lineHeight: 20,
+  },
+  sendBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 1,
+  },
+  sendBtnActive: { backgroundColor: "#6C63FF" },
+  sendBtnInactive: { backgroundColor: "#F0F2F5" },
+});

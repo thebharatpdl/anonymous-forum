@@ -162,7 +162,7 @@ export default function HomeScreen() {
       </View>
       
       <TouchableOpacity 
-        onPress={scrollToTop}
+        onPress={()=>router.push("/chat")}
         style={styles.globeBadge}
         activeOpacity={0.7}
       >

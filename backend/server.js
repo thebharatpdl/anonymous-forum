@@ -1,17 +1,17 @@
 require("dotenv").config();
 const express = require("express");
-const http = require("http"); // Add this
-const { Server } = require("socket.io"); // Add this
+const http = require("http");
+const { Server } = require("socket.io");
 const mongoose = require("mongoose");
 const cors = require("cors");
 
 const app = express();
-const server = http.createServer(app); // Create HTTP server
+const server = http.createServer(app);
 
 // Configure Socket.io
 const io = new Server(server, {
   cors: {
-    origin: "*", // Allow all origins for development
+    origin: "*",
     methods: ["GET", "POST"],
     credentials: true
   }
@@ -25,33 +25,88 @@ app.set("io", io);
 
 // Routes
 const postRoutes = require("./src/routes/postRoutes");
+const chatRoutes = require("./src/routes/chatRoutes");
+
 app.use("/api/posts", postRoutes);
+app.use("/api/chat", chatRoutes); // Add chat routes
 
 // Socket.io connection handling
 io.on("connection", (socket) => {
   console.log("✅ New client connected:", socket.id);
 
-  // Register anonymous user
+  // Register user
   socket.on("register", (userId) => {
     socket.userId = userId;
+    socket.join(`user_${userId}`);
     console.log(`📝 User registered: ${userId}`);
-    socket.emit("registered", { success: true, userId });
+    socket.broadcast.emit("user_online", { userId });
   });
 
-  // Handle new post (real-time broadcast)
-  socket.on("new_post", (postData) => {
-    console.log("📝 New post broadcast:", postData._id);
-    socket.broadcast.emit("new_post", postData);
+  // Join chat room
+  socket.on("join_chat", async ({ roomId, userId }) => {
+    socket.join(roomId);
+    console.log(`User ${userId} joined room: ${roomId}`);
+    
+    // Mark messages as read
+    try {
+      const ChatRoom = require("./src/models/ChatRoom");
+      await ChatRoom.updateMany(
+        { 
+          roomId, 
+          "messages.readBy": { $ne: userId },
+          "messages.senderId": { $ne: userId }
+        },
+        { $addToSet: { "messages.$[].readBy": userId } }
+      );
+    } catch (error) {
+      console.error("Error marking messages as read:", error);
+    }
+    
+    socket.to(roomId).emit("user_joined", { userId });
   });
 
-  // Handle like update (real-time broadcast)
-  socket.on("like_post", ({ postId, likes }) => {
-    console.log("❤️ Like update broadcast:", postId);
-    io.emit("like_updated", { postId, likes });
+  // Send message
+  socket.on("send_message", async ({ roomId, message, senderId, senderName }) => {
+    try {
+      const ChatRoom = require("./src/models/ChatRoom");
+      
+      const newMessage = {
+        content: message,
+        senderId,
+        senderName: senderName || "Anonymous",
+        readBy: [senderId],
+        createdAt: new Date(),
+      };
+      
+      // Save to database
+      await ChatRoom.updateOne(
+        { roomId },
+        {
+          $push: { messages: newMessage },
+          $set: { updatedAt: new Date() },
+        }
+      );
+      
+      // Emit to everyone in room
+      io.to(roomId).emit("new_message", {
+        ...newMessage,
+        roomId,
+      });
+    } catch (error) {
+      console.error("Error sending message:", error);
+    }
   });
 
-  // Handle disconnect
+  // Typing indicator
+  socket.on("typing", ({ roomId, userId, isTyping }) => {
+    socket.to(roomId).emit("user_typing", { userId, isTyping });
+  });
+
+  // Disconnect
   socket.on("disconnect", () => {
+    if (socket.userId) {
+      socket.broadcast.emit("user_offline", { userId: socket.userId });
+    }
     console.log("❌ Client disconnected:", socket.id);
   });
 });
@@ -63,10 +118,10 @@ mongoose.connect(process.env.MONGO_URI)
 
 // Test route
 app.get("/", (req, res) => {
-  res.send("API is running with Socket.io...");
+  res.send("API is running with Socket.io and Chat!");
 });
 
-// Server start - USE server.listen instead of app.listen
+// Server start
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
