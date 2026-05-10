@@ -2,16 +2,12 @@ import { Tabs, useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import { View, TouchableOpacity, StyleSheet, Keyboard, Platform } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useColorScheme } from "@/hooks/use-color-scheme";
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
   const router = useRouter();
   const [keyboardVisible, setKeyboardVisible] = useState(false);
 
   useEffect(() => {
-    if (Platform.OS !== "android") return;
-
     const show = Keyboard.addListener("keyboardDidShow", () =>
       setKeyboardVisible(true)
     );
@@ -32,9 +28,8 @@ export default function TabLayout() {
         tabBarShowLabel: false,
         tabBarActiveTintColor: "#6C63FF",
         tabBarInactiveTintColor: "#B0AECF",
-        tabBarHideOnKeyboard: true, // ← hides tab bar when keyboard opens on Android
         tabBarStyle: keyboardVisible
-          ? { display: "none" } // ← completely remove when keyboard is up
+          ? { display: "none" }
           : {
               height: 64,
               borderTopWidth: 0,
@@ -65,12 +60,12 @@ export default function TabLayout() {
         }}
       />
 
-      {/* FLOATING CENTER BUTTON */}
+      {/* FLOATING CENTER BUTTON - Only show when keyboard is hidden */}
       <Tabs.Screen
         name="add_post"
         options={{
-          tabBarButton: () =>
-            keyboardVisible ? null : ( // ← hide floating button too
+          tabBarButton: () => 
+            !keyboardVisible ? (
               <View style={styles.floatingContainer}>
                 <TouchableOpacity
                   style={styles.floatingButton}
@@ -80,7 +75,7 @@ export default function TabLayout() {
                   <Ionicons name="add" size={30} color="#fff" />
                 </TouchableOpacity>
               </View>
-            ),
+            ) : null,
         }}
       />
 

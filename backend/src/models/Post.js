@@ -1,5 +1,20 @@
 const mongoose = require("mongoose");
 
+const commentSchema = new mongoose.Schema({
+  content: {
+    type: String,
+    required: true
+  },
+  username: {
+    type: String,
+    default: "anon_user"
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now
+  }
+});
+
 const postSchema = new mongoose.Schema({
   content: {
     type: String,
@@ -13,11 +28,12 @@ const postSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
-  repostOf:{
-  type: mongoose.Schema.Types.ObjectId,
-  ref: 'Post',
-  default: null
-  }
+  repostOf: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Post',
+    default: null
+  },
+  comments: [commentSchema]
 }, { timestamps: true });
 
 module.exports = mongoose.model("Post", postSchema);

@@ -20,10 +20,33 @@ export default function RootLayout() {
     <Provider store={store}>
       <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
         <Stack>
+          {/* Tab navigator - main app */}
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          
+          {/* Add Post Modal */}
+          <Stack.Screen
+            name="add_post"
+            options={{ 
+              presentation: "modal", 
+              headerShown: false  // ← Hide header for add_post
+            }}
+          />
+          
+          {/* Post Detail Screen - NO HEADER */}
+          <Stack.Screen
+            name="post-detail"
+            options={{ 
+              headerShown: false  // ← Hide header for post detail
+            }}
+          />
+          
+          {/* Modal (if you have one) */}
           <Stack.Screen
             name="modal"
-            options={{ presentation: "modal", title: "Modal" }}
+            options={{ 
+              presentation: "modal", 
+              headerShown: false  // ← Hide header for modal
+            }}
           />
         </Stack>
 

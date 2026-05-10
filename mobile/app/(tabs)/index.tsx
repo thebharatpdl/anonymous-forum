@@ -9,32 +9,24 @@ import {
   ActivityIndicator,
   TouchableOpacity,
   Platform,
+  Keyboard,
+  Animated,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { getOrCreateUserId } from "../../services/userServices";  
 import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useAppDispatch, useAppSelector } from "../../src/redux/hooks";
 import { 
   fetchPosts, 
   addNewPostRealtime, 
   updateLikeRealtime,
   setSocketConnected,
-  Post
+  Post 
 } from "../../src/redux/postsSlice";
 import PostCard from "../../components/PostCard";
 import socketService from "../../services/socket";
-
-// Try to import AsyncStorage, but provide fallback
-let AsyncStorage: any;
-try {
-  AsyncStorage = require("@react-native-async-storage/async-storage").default;
-} catch (error) {
-  console.log("AsyncStorage not available, using memory fallback");
-  // Simple in-memory fallback
-  AsyncStorage = {
-    getItem: async (key: string) => null,
-    setItem: async (key: string, value: string) => {},
-  };
-}
 
 // Constants
 const INITIAL_NUM_TO_RENDER = 8;
@@ -43,23 +35,32 @@ const WINDOW_SIZE = 10;
 
 export default function HomeScreen() {
   const dispatch = useAppDispatch();
+  const router = useRouter();
   const { posts, loading, isConnected } = useAppSelector((state) => state.posts);
   const [refreshing, setRefreshing] = useState(false);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const flatListRef = useRef<FlatList>(null);
+  
+  const scrollY = useRef(new Animated.Value(0)).current;
 
-  // Get or create anonymous user ID
+  // Track keyboard visibility
+  useEffect(() => {
+    const keyboardDidShowListener = Keyboard.addListener('keyboardDidShow', () => {
+      setIsKeyboardVisible(true);
+    });
+    const keyboardDidHideListener = Keyboard.addListener('keyboardDidHide', () => {
+      setIsKeyboardVisible(false);
+    });
+
+    return () => {
+      keyboardDidShowListener.remove();
+      keyboardDidHideListener.remove();
+    };
+  }, []);
+
+  // Get user ID
   const getUserId = useCallback(async () => {
-    try {
-      let userId = await AsyncStorage.getItem('anonymousUserId');
-      if (!userId) {
-        userId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        await AsyncStorage.setItem('anonymousUserId', userId);
-      }
-      return userId;
-    } catch (error) {
-      console.log('Error getting userId:', error);
-      return `user_${Date.now()}`;
-    }
+    return await getOrCreateUserId();
   }, []);
 
   // Handle new post from socket
@@ -98,7 +99,6 @@ export default function HomeScreen() {
       const userId = await getUserId();
       socketService.connect(userId);
 
-      // Register event listeners
       socketService.on('new_post', handleNewPost);
       socketService.on('like_updated', handleLikeUpdate);
       socketService.on('connect', handleConnect);
@@ -148,10 +148,11 @@ export default function HomeScreen() {
     []
   );
 
-  const ListHeaderComponent = () => (
+  // Header component (stays at top, doesn't scroll)
+  const HeaderComponent = () => (
     <View style={styles.header}>
       <View style={styles.headerLeft}>
-        <Text style={styles.headerTitle}>Anonymous Feed</Text>
+        <Text style={styles.headerTitle}>PulseFeed</Text>
         <View style={styles.statusBadge}>
           <View style={[styles.statusDot, isConnected && styles.statusDotActive]} />
           <Text style={styles.statusText}>
@@ -165,12 +166,13 @@ export default function HomeScreen() {
         style={styles.globeBadge}
         activeOpacity={0.7}
       >
-        <Ionicons name="globe-outline" size={22} color="#6C63FF" />
+        <MaterialCommunityIcons name="chat-processing-outline" size={24} color="#6C63FF" />
       </TouchableOpacity>
     </View>
   );
 
-  const ListEmptyComponent = () => {
+  // Empty state component
+  const EmptyComponent = () => {
     if (loading) {
       return (
         <View style={styles.centerBox}>
@@ -187,11 +189,18 @@ export default function HomeScreen() {
         <Text style={styles.emptySub}>
           Be the first to share something anonymous
         </Text>
+        <TouchableOpacity 
+          style={styles.emptyButton}
+          onPress={() => router.push("/add_post")}
+        >
+          <Text style={styles.emptyButtonText}>Create First Post</Text>
+        </TouchableOpacity>
       </View>
     );
   };
 
-  const ListFooterComponent = () => {
+  // Footer component
+  const FooterComponent = () => {
     if (!posts.length) return null;
     
     return (
@@ -202,20 +211,24 @@ export default function HomeScreen() {
     );
   };
 
+  // Key extractor
   const keyExtractor = useCallback((item: Post) => item._id, []);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <StatusBar barStyle="dark-content" backgroundColor="#F5F5FA" />
 
+      {/* Fixed Header - outside FlatList */}
+      <HeaderComponent />
+
+      {/* Scrollable Content */}
       <FlatList
         ref={flatListRef}
         data={posts}
         keyExtractor={keyExtractor}
         renderItem={renderItem}
-        ListHeaderComponent={ListHeaderComponent}
-        ListEmptyComponent={ListEmptyComponent}
-        ListFooterComponent={ListFooterComponent}
+        ListEmptyComponent={EmptyComponent}
+        ListFooterComponent={FooterComponent}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -232,6 +245,7 @@ export default function HomeScreen() {
         windowSize={WINDOW_SIZE}
         initialNumToRender={INITIAL_NUM_TO_RENDER}
         onEndReachedThreshold={0.5}
+        keyboardShouldPersistTaps="handled"
       />
     </SafeAreaView>
   );
@@ -247,11 +261,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 16,
+    paddingVertical: 16,
     backgroundColor: "#F5F5FA",
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: 1,
     borderBottomColor: "#EAEAF0",
+    zIndex: 10,
   },
   headerLeft: {
     flex: 1,
@@ -259,7 +273,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 28,
     fontWeight: "800",
-    color: "#1A1A2E",
+    color: "#6C63FF",
     letterSpacing: -0.5,
     marginBottom: 6,
   },
@@ -333,6 +347,19 @@ const styles = StyleSheet.create({
     color: "#9999AA",
     textAlign: "center",
     lineHeight: 20,
+    marginBottom: 20,
+  },
+  emptyButton: {
+    backgroundColor: "#6C63FF",
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+    marginTop: 16,
+  },
+  emptyButtonText: {
+    color: "#FFFFFF",
+    fontWeight: "600",
+    fontSize: 14,
   },
   loadingText: {
     marginTop: 16,

@@ -104,7 +104,7 @@ export default function CreatePostScreen() {
     }
   };
 
-  const MOODS = ["💡 Thought", "✨ Idea", "🔥 Hot take", "💭 Random"];
+  const MOODS = ["💡 Thought:", "✨ Idea:", "🔥 Hot take:", "💭 Random:"];
 
   return (
     <SafeAreaView style={styles.safeArea}>

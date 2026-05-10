@@ -2,6 +2,12 @@ import { createSlice, createAsyncThunk, PayloadAction } from "@reduxjs/toolkit";
 import axios from "axios";
 import { API_URL } from '../config';
 
+export type Comment = {
+  content: string;
+  username: string;
+  createdAt?: string;
+};
+
 export type Post = {
   _id: string;
   content: string;
@@ -9,6 +15,7 @@ export type Post = {
   likes?: number;
   repostOf?: string | null;
   createdAt?: string;
+  comments?: Comment[];
 };
 
 type PostsState = {
@@ -26,17 +33,10 @@ const initialState: PostsState = {
 };
 
 // Fetch posts
-export const fetchPosts = createAsyncThunk(
-  "posts/fetchPosts",
-  async () => {
-    try {
-      const res = await axios.get(API_URL);
-      return res.data;
-    } catch (error) {
-      throw error;
-    }
-  }
-);
+export const fetchPosts = createAsyncThunk("posts/fetchPosts", async () => {
+  const res = await axios.get(API_URL);
+  return res.data;
+});
 
 // Create post
 export const createPost = createAsyncThunk(
@@ -56,6 +56,18 @@ export const likePostAsync = createAsyncThunk(
   }
 );
 
+// Comment on post
+export const commentPostAsync = createAsyncThunk(
+  "posts/commentPost",
+  async ({ postId, content }: { postId: string; content: string }) => {
+    const res = await axios.post(`${API_URL}/comment/${postId}`, { content });
+    return {
+      postId,
+      comment: res.data,
+    };
+  }
+);
+
 const postsSlice = createSlice({
   name: "posts",
   initialState,
@@ -63,40 +75,35 @@ const postsSlice = createSlice({
     setPosts(state, action: PayloadAction<Post[]>) {
       state.posts = action.payload;
     },
-    
-    // ✅ Make sure addPost is here
-   addPost(state, action: PayloadAction<Post>) {
-      // ✅ Prevent duplicate by checking _id
+    addPost(state, action: PayloadAction<Post>) {
       const exists = state.posts.some(p => p._id === action.payload._id);
       if (!exists) {
         state.posts.unshift(action.payload);
       }
     },
-    likePost(state, action: PayloadAction<string>) {
-      const post = state.posts.find((p) => p._id === action.payload);
-      if (post) post.likes = (post.likes || 0) + 1;
-    },
-    
-     addNewPostRealtime(state, action: PayloadAction<Post>) {
-      // ✅ Same prevention for real‑time events
+    addNewPostRealtime(state, action: PayloadAction<Post>) {
       const exists = state.posts.some(p => p._id === action.payload._id);
       if (!exists) {
         state.posts.unshift(action.payload);
       }
     },
-    
     updateLikeRealtime(state, action: PayloadAction<{ postId: string; likes: number }>) {
-      const post = state.posts.find((p) => p._id === action.payload.postId);
+      const post = state.posts.find(p => p._id === action.payload.postId);
       if (post) {
         post.likes = action.payload.likes;
       }
     },
-    
+    addCommentRealtime(state, action: PayloadAction<{ postId: string; comment: Comment }>) {
+      const post = state.posts.find(p => p._id === action.payload.postId);
+      if (post) {
+        post.comments = post.comments || [];
+        post.comments.unshift(action.payload.comment);
+      }
+    },
     setSocketConnected(state, action: PayloadAction<boolean>) {
       state.isConnected = action.payload;
     },
   },
-  
   extraReducers: (builder) => {
     builder
       .addCase(fetchPosts.pending, (state) => {
@@ -117,18 +124,24 @@ const postsSlice = createSlice({
         if (post) {
           post.likes = action.payload.likes;
         }
+      })
+      .addCase(commentPostAsync.fulfilled, (state, action) => {
+        const post = state.posts.find(p => p._id === action.payload.postId);
+        if (post) {
+          post.comments = post.comments || [];
+          post.comments.unshift(action.payload.comment);
+        }
       });
   },
 });
 
-// ✅ Make sure all these are exported
-export const { 
-  setPosts, 
-  addPost,           // ✅ This is what you need
-  likePost, 
-  addNewPostRealtime, 
+export const {
+  setPosts,
+  addPost,
+  addNewPostRealtime,
   updateLikeRealtime,
-  setSocketConnected 
+  addCommentRealtime,
+  setSocketConnected
 } = postsSlice.actions;
 
 export default postsSlice.reducer;
