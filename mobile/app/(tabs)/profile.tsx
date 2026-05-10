@@ -209,16 +209,8 @@ export default function ProfileScreen() {
 
         {/* ── PRIVACY CARD ── */}
         <View style={styles.privacyCard}>
-          <View style={styles.privacyIconWrap}>
-            <Ionicons name="shield-checkmark" size={24} color="#10B981" />
-          </View>
-          <View style={styles.privacyBody}>
-            <Text style={styles.privacyTitle}>Your Privacy is Protected</Text>
-            <Text style={styles.privacyText}>
-              Your identity remains completely anonymous. No personal information is ever shared.
-            </Text>
-          </View>
-          <Ionicons name="checkmark-circle" size={24} color="#10B981" />
+         
+          
         </View>
 
       </ScrollView>
@@ -634,7 +626,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F0FDF4',
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#D1FAE5',
+    borderColor: '#f9f9f9',
   },
   privacyIconWrap: {
     width: 48,

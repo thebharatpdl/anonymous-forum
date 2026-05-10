@@ -152,7 +152,7 @@ export default function HomeScreen() {
   const HeaderComponent = () => (
     <View style={styles.header}>
       <View style={styles.headerLeft}>
-        <Text style={styles.headerTitle}>PulseFeed</Text>
+        <Text style={styles.headerTitle}>EchoVoice</Text>
         <View style={styles.statusBadge}>
           <View style={[styles.statusDot, isConnected && styles.statusDotActive]} />
           <Text style={styles.statusText}>
@@ -203,12 +203,7 @@ export default function HomeScreen() {
   const FooterComponent = () => {
     if (!posts.length) return null;
     
-    return (
-      <View style={styles.footer}>
-        <Ionicons name="checkmark-circle-outline" size={16} color="#BBBBCC" />
-        <Text style={styles.footerText}>You're all caught up ✨</Text>
-      </View>
-    );
+  
   };
 
   // Key extractor

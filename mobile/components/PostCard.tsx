@@ -10,6 +10,7 @@ import {
   FlatList,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import {Feather} from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useAppDispatch } from "../src/redux/hooks";
 import { likePostAsync, commentPostAsync, Post } from "../src/redux/postsSlice";
@@ -142,7 +143,7 @@ export default function PostCard({ post }: PostCardProps) {
           <View style={styles.actions}>
             {/* LIKE */}
             <TouchableOpacity
-              style={styles.actionButton}
+              style={styles.actionButtonlike}
               onPress={handleLike}
               disabled={isLiking}
             >
@@ -160,22 +161,21 @@ export default function PostCard({ post }: PostCardProps) {
             </TouchableOpacity>
 
             {/* REPOST */}
-            <TouchableOpacity
+            {/* <TouchableOpacity
               style={styles.actionButton}
               onPress={handleRepost}
               disabled={isReposting}
             >
               <Ionicons name="repeat-outline" size={20} color="#4CAF50" />
               <Text style={styles.actionText}>Repost</Text>
-            </TouchableOpacity>
+            </TouchableOpacity> */}
 
             {/* CHAT - New Button */}
             <TouchableOpacity
               style={styles.actionButton}
               onPress={handleStartChat}
             >
-              <Ionicons name="chatbubble-outline" size={20} color="#6366F1" />
-              <Text style={styles.actionText}>Chat</Text>
+              <Feather name="send" size={20} color="#6366F1" />
             </TouchableOpacity>
           </View>
         </View>
@@ -276,8 +276,15 @@ const styles = StyleSheet.create({
   },
   actionButton: {
     flexDirection: "row",
-    alignItems: "center",
+  marginLeft: "auto",  
     gap: 6,
+  },
+
+
+  
+    actionButtonlike: {
+      flexDirection: "row",
+      gap: 6,
   },
   actionText: {
     fontSize: 14,
