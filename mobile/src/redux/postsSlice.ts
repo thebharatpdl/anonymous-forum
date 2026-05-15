@@ -1,6 +1,7 @@
 import { createSlice, createAsyncThunk, PayloadAction } from "@reduxjs/toolkit";
 import axios from "axios";
 import { API_URL } from '../config';
+import { getToken } from '../../services/authService';
 
 export type Comment = {
   content: string;
@@ -12,6 +13,7 @@ export type Post = {
   _id: string;
   content: string;
   username: string;
+  authorId?: string;
   likes?: number;
   repostOf?: string | null;
   createdAt?: string;
@@ -42,7 +44,12 @@ export const fetchPosts = createAsyncThunk("posts/fetchPosts", async () => {
 export const createPost = createAsyncThunk(
   "posts/createPost",
   async (content: string) => {
-    const res = await axios.post(API_URL, { content });
+    const token = await getToken();
+    const res = await axios.post(
+      API_URL,
+      { content },
+      { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+    );
     return res.data;
   }
 );
@@ -51,16 +58,35 @@ export const createPost = createAsyncThunk(
 export const likePostAsync = createAsyncThunk(
   "posts/likePost",
   async (postId: string) => {
-    const res = await axios.post(`${API_URL}/like/${postId}`);
+    const token = await getToken();
+    const res = await axios.post(
+      `${API_URL}/like/${postId}`,
+      {},
+      { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+    );
     return { postId, likes: res.data.likes };
   }
 );
 
-// Comment on post
+// COMMENT ON POST - FIXED with auth token
+// COMMENT ON POST - FIXED
 export const commentPostAsync = createAsyncThunk(
   "posts/commentPost",
   async ({ postId, content }: { postId: string; content: string }) => {
-    const res = await axios.post(`${API_URL}/comment/${postId}`, { content });
+    const token = await getToken();
+    const currentUser = await import('../../services/authService').then(m => m.getCurrentUser());
+    const username = currentUser?.anonymousName || "Anonymous";
+    
+    console.log("📤 Sending comment:", { postId, content, username });
+    
+    const res = await axios.post(
+      `${API_URL}/comment/${postId}`,
+      { content, username },
+      { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+    );
+    
+    console.log("✅ Comment response:", res.data);
+    
     return {
       postId,
       comment: res.data,

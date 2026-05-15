@@ -13,7 +13,6 @@ import {
   Animated,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { getOrCreateUserId } from "../../services/userServices";  
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -27,6 +26,7 @@ import {
 } from "../../src/redux/postsSlice";
 import PostCard from "../../components/PostCard";
 import socketService from "../../services/socket";
+import { getUserId } from "../../services/authService";
 
 // Constants
 const INITIAL_NUM_TO_RENDER = 8;
@@ -58,9 +58,10 @@ export default function HomeScreen() {
     };
   }, []);
 
-  // Get user ID
-  const getUserId = useCallback(async () => {
-    return await getOrCreateUserId();
+  // Get user ID from auth service
+  const getCurrentUserId = useCallback(async () => {
+    const userId = await getUserId();
+    return userId || '';
   }, []);
 
   // Handle new post from socket
@@ -96,7 +97,11 @@ export default function HomeScreen() {
 
   const setupSocketConnection = async () => {
     try {
-      const userId = await getUserId();
+      const userId = await getCurrentUserId();
+      if (!userId) {
+        console.log('No user ID yet, waiting for auth');
+        return;
+      }
       socketService.connect(userId);
 
       socketService.on('new_post', handleNewPost);
@@ -162,7 +167,7 @@ export default function HomeScreen() {
       </View>
       
       <TouchableOpacity 
-        onPress={()=>router.push("/chat")}
+        onPress={() => router.push("/chatlist")}
         style={styles.globeBadge}
         activeOpacity={0.7}
       >
@@ -203,7 +208,12 @@ export default function HomeScreen() {
   const FooterComponent = () => {
     if (!posts.length) return null;
     
-  
+    return (
+      <View style={styles.footer}>
+        <Ionicons name="checkmark-circle-outline" size={16} color="#BBBBCC" />
+        <Text style={styles.footerText}>You're all caught up ✨</Text>
+      </View>
+    );
   };
 
   // Key extractor

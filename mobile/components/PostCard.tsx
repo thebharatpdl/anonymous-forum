@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -10,11 +10,11 @@ import {
   FlatList,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import {Feather} from "@expo/vector-icons";
+import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useAppDispatch } from "../src/redux/hooks";
 import { likePostAsync, commentPostAsync, Post } from "../src/redux/postsSlice";
-import { getOrCreateUserId } from "../services/userServices";
+import { getCurrentUser } from "../services/authService";
 import axios from "axios";
 import { API_URL } from "../src/config";
 
@@ -31,6 +31,7 @@ type Comment = {
 export default function PostCard({ post }: PostCardProps) {
   const dispatch = useAppDispatch();
   const router = useRouter();
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   // STATES
   const [isLiking, setIsLiking] = useState(false);
@@ -39,6 +40,18 @@ export default function PostCard({ post }: PostCardProps) {
   const [commentContent, setCommentContent] = useState("");
   const [isCommenting, setIsCommenting] = useState(false);
   const [localComments, setLocalComments] = useState<Comment[]>(post.comments || []);
+
+  // Get current user on mount
+  useEffect(() => {
+    loadCurrentUser();
+  }, []);
+
+  const loadCurrentUser = async () => {
+    const user = await getCurrentUser();
+    if (user) {
+      setCurrentUserId(user.id);
+    }
+  };
 
   // LIKE POST
   const handleLike = async () => {
@@ -94,17 +107,30 @@ export default function PostCard({ post }: PostCardProps) {
     }
   };
 
-  // START CHAT - Fixed function
+  // START CHAT - Use post.authorId (user ID, not post ID)
   const handleStartChat = async () => {
     try {
-      const userId = await getOrCreateUserId();
-      const roomId = [userId, post._id].sort().join("-");
+      const user = await getCurrentUser();
+      if (!user) {
+        Alert.alert("Error", "Please login first");
+        return;
+      }
+
+      // Use authorId from post (you need to add this to your post model)
+      const otherUserId = post.authorId;
+      if (!otherUserId) {
+        Alert.alert("Error", "Cannot start chat: Author ID missing");
+        return;
+      }
+
+      const roomId = [user.id, otherUserId].sort().join("-");
       
       router.push({
         pathname: "/chat",
         params: { 
           roomId: roomId, 
-          otherUserId: post._id 
+          otherUserId: otherUserId,
+          otherUserName: post.username
         }
       });
     } catch (error) {
@@ -160,17 +186,7 @@ export default function PostCard({ post }: PostCardProps) {
               <Text style={styles.actionText}>{localComments.length}</Text>
             </TouchableOpacity>
 
-            {/* REPOST */}
-            {/* <TouchableOpacity
-              style={styles.actionButton}
-              onPress={handleRepost}
-              disabled={isReposting}
-            >
-              <Ionicons name="repeat-outline" size={20} color="#4CAF50" />
-              <Text style={styles.actionText}>Repost</Text>
-            </TouchableOpacity> */}
-
-            {/* CHAT - New Button */}
+            {/* CHAT Button */}
             <TouchableOpacity
               style={styles.actionButton}
               onPress={handleStartChat}
@@ -185,7 +201,6 @@ export default function PostCard({ post }: PostCardProps) {
       <Modal visible={commentModalVisible} animationType="slide" transparent={true}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            {/* MODAL HEADER */}
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Comments</Text>
               <TouchableOpacity onPress={() => setCommentModalVisible(false)}>
@@ -193,7 +208,6 @@ export default function PostCard({ post }: PostCardProps) {
               </TouchableOpacity>
             </View>
 
-            {/* COMMENTS LIST */}
             <FlatList
               data={localComments}
               keyExtractor={(_, index) => index.toString()}
@@ -213,7 +227,6 @@ export default function PostCard({ post }: PostCardProps) {
               }
             />
 
-            {/* COMMENT INPUT */}
             <View style={styles.commentInputContainer}>
               <TextInput
                 placeholder="Write comment..."
@@ -276,15 +289,12 @@ const styles = StyleSheet.create({
   },
   actionButton: {
     flexDirection: "row",
-  marginLeft: "auto",  
+    marginLeft: "auto",
     gap: 6,
   },
-
-
-  
-    actionButtonlike: {
-      flexDirection: "row",
-      gap: 6,
+  actionButtonlike: {
+    flexDirection: "row",
+    gap: 6,
   },
   actionText: {
     fontSize: 14,

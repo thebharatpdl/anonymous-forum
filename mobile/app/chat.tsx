@@ -1,4 +1,3 @@
-// mobile/app/chat.tsx
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   View,
@@ -12,14 +11,13 @@ import {
   ActivityIndicator,
   Animated,
   Pressable,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import socketService from "../services/socket";
-import { getOrCreateUserId } from "../services/userServices";
-
-// ─── Types ───────────────────────────────────────────────────────────────────
+import { getCurrentUser } from "../services/authService";
 
 type Message = {
   _id?: string;
@@ -35,15 +33,15 @@ type TypingEvent = {
   isTyping: boolean;
 };
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
 const formatTime = (iso: string) =>
   new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
-// ─── Typing Dots ─────────────────────────────────────────────────────────────
-
 function TypingDots() {
-  const dots = [useRef(new Animated.Value(0)).current, useRef(new Animated.Value(0)).current, useRef(new Animated.Value(0)).current];
+  const dots = [
+    useRef(new Animated.Value(0)).current,
+    useRef(new Animated.Value(0)).current,
+    useRef(new Animated.Value(0)).current,
+  ];
 
   useEffect(() => {
     const animations = dots.map((dot, i) =>
@@ -66,7 +64,20 @@ function TypingDots() {
         {dots.map((dot, i) => (
           <Animated.View
             key={i}
-            style={[styles.dot, { opacity: dot, transform: [{ translateY: dot.interpolate({ inputRange: [0, 1], outputRange: [0, -3] }) }] }]}
+            style={[
+              styles.dot,
+              {
+                opacity: dot,
+                transform: [
+                  {
+                    translateY: dot.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0, -3],
+                    }),
+                  },
+                ],
+              },
+            ]}
           />
         ))}
       </View>
@@ -74,9 +85,15 @@ function TypingDots() {
   );
 }
 
-// ─── Message Bubble ───────────────────────────────────────────────────────────
-
-function MessageBubble({ item, isMyMessage, prevSenderId }: { item: Message; isMyMessage: boolean; prevSenderId?: string }) {
+function MessageBubble({
+  item,
+  isMyMessage,
+  prevSenderId,
+}: {
+  item: Message;
+  isMyMessage: boolean;
+  prevSenderId?: string;
+}) {
   const showName = !isMyMessage && item.senderId !== prevSenderId;
   const isRead = item.readBy.length > 1;
 
@@ -84,7 +101,9 @@ function MessageBubble({ item, isMyMessage, prevSenderId }: { item: Message; isM
     <View style={[styles.messageRow, isMyMessage ? styles.myMessageRow : styles.otherMessageRow]}>
       {!isMyMessage && (
         <View style={[styles.avatarSmall, { opacity: showName ? 1 : 0 }]}>
-          <Text style={styles.avatarSmallText}>{item.senderName?.[0]?.toUpperCase() ?? "A"}</Text>
+          <Text style={styles.avatarSmallText}>
+            {item.senderName?.[0]?.toUpperCase() ?? "A"}
+          </Text>
         </View>
       )}
       <View style={[styles.bubbleWrapper, isMyMessage ? { alignItems: "flex-end" } : { alignItems: "flex-start" }]}>
@@ -111,12 +130,11 @@ function MessageBubble({ item, isMyMessage, prevSenderId }: { item: Message; isM
   );
 }
 
-// ─── Main Screen ─────────────────────────────────────────────────────────────
-
 export default function ChatScreen() {
-  const { roomId, otherUserName } = useLocalSearchParams<{
+  const { roomId, otherUserName, otherUserId } = useLocalSearchParams<{
     roomId: string;
     otherUserName?: string;
+    otherUserId?: string;
   }>();
   const router = useRouter();
 
@@ -125,6 +143,7 @@ export default function ChatScreen() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [userId, setUserId] = useState("");
+  const [userName, setUserName] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [otherUserTyping, setOtherUserTyping] = useState(false);
 
@@ -132,19 +151,41 @@ export default function ChatScreen() {
   const typingTimeoutRef = useRef<any>(null);
   const inputRef = useRef<TextInput>(null);
 
-  // ── Init ──────────────────────────────────────────────────────────────────
-
   useEffect(() => {
     initializeChat();
     return () => cleanupChat();
   }, []);
 
   const initializeChat = async () => {
-    const uid = await getOrCreateUserId();
-    setUserId(uid);
-    socketService.emit("join_chat", { roomId, userId: uid });
-    await fetchChatHistory();
-    setLoading(false);
+    try {
+      const user = await getCurrentUser();
+      if (!user) {
+        Alert.alert("Error", "Please login first");
+        router.back();
+        return;
+      }
+
+      setUserId(user.id);
+      setUserName(user.anonymousName);
+
+      console.log("💬 Initializing chat:", {
+        userId: user.id,
+        userName: user.anonymousName,
+        roomId,
+        otherUserId,
+      });
+
+      // Connect (and register) with the authenticated userId FIRST.
+      // join_chat is queued and flushed automatically once the socket connects.
+      socketService.connect(user.id);
+      socketService.emit("join_chat", { roomId, userId: user.id });
+
+      await fetchChatHistory();
+      setLoading(false);
+    } catch (error) {
+      console.error("Init error:", error);
+      setLoading(false);
+    }
   };
 
   const fetchChatHistory = async () => {
@@ -164,10 +205,9 @@ export default function ChatScreen() {
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
   };
 
-  // ── Socket listeners ──────────────────────────────────────────────────────
-
   useEffect(() => {
     socketService.on("new_message", (message: Message) => {
+      console.log("📥 New message received:", message);
       setMessages((prev) => [...prev, message]);
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
     });
@@ -176,36 +216,21 @@ export default function ChatScreen() {
       if (data.userId !== userId) setOtherUserTyping(data.isTyping);
     });
 
-    // Mark messages as read when other user's messages arrive
-    socketService.on("messages_read", ({ readerId }: { readerId: string }) => {
-      if (readerId !== userId) {
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.senderId === userId && !m.readBy.includes(readerId)
-              ? { ...m, readBy: [...m.readBy, readerId] }
-              : m
-          )
-        );
-      }
-    });
-
     return () => {
       socketService.off("new_message");
       socketService.off("user_typing");
-      socketService.off("messages_read");
     };
   }, [userId]);
-
-  // ── Actions ───────────────────────────────────────────────────────────────
 
   const handleSend = async () => {
     const text = inputText.trim();
     if (!text || sending) return;
 
+    console.log("📤 Sending message:", { roomId, text, userId, userName });
+
     setSending(true);
     setInputText("");
 
-    // Stop typing indicator
     if (isTyping) {
       setIsTyping(false);
       socketService.emit("typing", { roomId, userId, isTyping: false });
@@ -215,7 +240,7 @@ export default function ChatScreen() {
       roomId,
       message: text,
       senderId: userId,
-      senderName: "Anonymous",
+      senderName: userName || "Anonymous",
     });
 
     setSending(false);
@@ -242,8 +267,6 @@ export default function ChatScreen() {
     }
   };
 
-  // ── Render ─────────────────────────────────────────────────────────────────
-
   const renderItem = useCallback(
     ({ item, index }: { item: Message; index: number }) => {
       const isMyMessage = item.senderId === userId;
@@ -266,12 +289,10 @@ export default function ChatScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
-      {/* ── Header ── */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.headerBack} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.headerBack}>
           <Ionicons name="arrow-back" size={22} color="#1C1E21" />
         </TouchableOpacity>
-
         <View style={styles.headerCenter}>
           <View style={styles.headerAvatar}>
             <Text style={styles.headerAvatarText}>
@@ -281,16 +302,16 @@ export default function ChatScreen() {
           </View>
           <View>
             <Text style={styles.headerName}>{otherUserName ?? "Anonymous"}</Text>
-            <Text style={styles.headerStatus}>{otherUserTyping ? "Typing…" : "Active now"}</Text>
+            <Text style={styles.headerStatus}>
+              {otherUserTyping ? "Typing…" : "Active now"}
+            </Text>
           </View>
         </View>
-
-        <TouchableOpacity style={styles.headerAction} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+        <TouchableOpacity style={styles.headerAction}>
           <Ionicons name="ellipsis-vertical" size={20} color="#1C1E21" />
         </TouchableOpacity>
       </View>
 
-      {/* ── Messages ── */}
       <FlatList
         ref={flatListRef}
         data={messages}
@@ -305,16 +326,17 @@ export default function ChatScreen() {
               <Ionicons name="chatbubbles-outline" size={32} color="#6C63FF" />
             </View>
             <Text style={styles.emptyChatText}>Say hello!</Text>
-            <Text style={styles.emptyChatSub}>This is the beginning of your conversation.</Text>
+            <Text style={styles.emptyChatSub}>
+              This is the beginning of your conversation.
+            </Text>
           </View>
         }
         ListFooterComponent={otherUserTyping ? <TypingDots /> : null}
       />
 
-      {/* ── Input ── */}
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
+        keyboardVerticalOffset={0}
       >
         <SafeAreaView edges={["bottom"]} style={styles.inputSafeArea}>
           <View style={styles.inputBar}>
@@ -327,7 +349,6 @@ export default function ChatScreen() {
               onChangeText={handleTyping}
               multiline
               maxLength={1000}
-              returnKeyType="default"
             />
             <Pressable
               style={({ pressed }) => [
@@ -338,7 +359,11 @@ export default function ChatScreen() {
               onPress={handleSend}
               disabled={!inputText.trim() || sending}
             >
-              <Ionicons name="send" size={18} color={inputText.trim() ? "#FFFFFF" : "#B0B3B8"} />
+              <Ionicons
+                name="send"
+                size={18}
+                color={inputText.trim() ? "#FFFFFF" : "#B0B3B8"}
+              />
             </Pressable>
           </View>
         </SafeAreaView>
@@ -347,15 +372,10 @@ export default function ChatScreen() {
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
-
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F4F5F9" },
-
   loader: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#F4F5F9" },
   loaderText: { marginTop: 12, fontSize: 14, color: "#65676B" },
-
-  // Header
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -391,19 +411,10 @@ const styles = StyleSheet.create({
   headerName: { fontSize: 15, fontWeight: "700", color: "#1C1E21" },
   headerStatus: { fontSize: 11, color: "#65676B", marginTop: 1 },
   headerAction: { padding: 8 },
-
-  // Messages
   messagesList: { paddingHorizontal: 12, paddingTop: 16, paddingBottom: 8 },
-
-  messageRow: {
-    flexDirection: "row",
-    marginBottom: 4,
-    alignItems: "flex-end",
-    gap: 6,
-  },
+  messageRow: { flexDirection: "row", marginBottom: 4, alignItems: "flex-end", gap: 6 },
   myMessageRow: { justifyContent: "flex-end" },
   otherMessageRow: { justifyContent: "flex-start" },
-
   avatarSmall: {
     width: 28,
     height: 28,
@@ -414,19 +425,10 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   avatarSmallText: { fontSize: 11, fontWeight: "700", color: "#6C63FF" },
-
   bubbleWrapper: { maxWidth: "74%" },
   senderLabel: { fontSize: 11, color: "#6C63FF", fontWeight: "600", marginBottom: 3, marginLeft: 4 },
-
-  bubble: {
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: 18,
-  },
-  myBubble: {
-    backgroundColor: "#6C63FF",
-    borderBottomRightRadius: 4,
-  },
+  bubble: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 18 },
+  myBubble: { backgroundColor: "#6C63FF", borderBottomRightRadius: 4 },
   otherBubble: {
     backgroundColor: "#FFFFFF",
     borderBottomLeftRadius: 4,
@@ -436,12 +438,9 @@ const styles = StyleSheet.create({
   bubbleText: { fontSize: 14.5, lineHeight: 20 },
   myBubbleText: { color: "#FFFFFF" },
   otherBubbleText: { color: "#1C1E21" },
-
   metaRow: { flexDirection: "row", alignItems: "center", gap: 3, marginTop: 3, marginHorizontal: 4 },
   timeText: { fontSize: 10, color: "#9CA3AF" },
   readReceipt: {},
-
-  // Typing
   typingBubble: {
     alignSelf: "flex-start",
     backgroundColor: "#FFFFFF",
@@ -455,14 +454,7 @@ const styles = StyleSheet.create({
     borderColor: "#E4E6EB",
   },
   typingDots: { flexDirection: "row", gap: 4, alignItems: "center" },
-  dot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: "#9CA3AF",
-  },
-
-  // Empty
+  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#9CA3AF" },
   emptyChat: { flex: 1, alignItems: "center", paddingTop: 60, paddingHorizontal: 40 },
   emptyChatIcon: {
     width: 64,
@@ -475,8 +467,6 @@ const styles = StyleSheet.create({
   },
   emptyChatText: { fontSize: 16, fontWeight: "700", color: "#1C1E21" },
   emptyChatSub: { fontSize: 13, color: "#65676B", textAlign: "center", marginTop: 6 },
-
-  // Input
   inputSafeArea: { backgroundColor: "#FFFFFF" },
   inputBar: {
     flexDirection: "row",
@@ -500,14 +490,7 @@ const styles = StyleSheet.create({
     maxHeight: 120,
     lineHeight: 20,
   },
-  sendBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 1,
-  },
+  sendBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", marginBottom: 1 },
   sendBtnActive: { backgroundColor: "#6C63FF" },
   sendBtnInactive: { backgroundColor: "#F0F2F5" },
 });

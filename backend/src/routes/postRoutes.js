@@ -1,83 +1,59 @@
 const express = require("express");
 const router = express.Router();
-
 const Post = require("../models/Post");
+const { protect } = require("../middleware/authMiddleware");
 
-//
-// CREATE POST
-//
-router.post("/", async (req, res) => {
+// ============================================
+// CREATE POST - PROTECTED ROUTE (requires auth)
+// ============================================
+router.post("/", protect, async (req, res) => {
   try {
     const newPost = new Post({
       content: req.body.content,
-      username: req.body.username || "anon_user",
+      username: req.user.anonymousName,
+      authorId: req.user._id,
     });
 
     const savedPost = await newPost.save();
-
-    //
-    // REALTIME SOCKET EVENT
-    //
     const io = req.app.get("io");
-
     if (io) {
       io.emit("new_post", savedPost);
     }
-
+    
     res.status(201).json(savedPost);
   } catch (err) {
     console.error("Create post error:", err);
-
-    res.status(500).json({
-      error: err.message,
-    });
+    res.status(500).json({ error: err.message });
   }
 });
 
-//
-// GET ALL POSTS
-//
+// ============================================
+// GET ALL POSTS (Public - No auth required)
+// ============================================
 router.get("/", async (req, res) => {
   try {
-    const posts = await Post.find().sort({
-      createdAt: -1,
-    });
-
+    const posts = await Post.find().sort({ createdAt: -1 });
     res.json(posts);
   } catch (err) {
     console.error("Get posts error:", err);
-
-    res.status(500).json({
-      error: err.message,
-    });
+    res.status(500).json({ error: err.message });
   }
 });
 
-//
-// LIKE POST
-//
+// ============================================
+// LIKE POST (Public - No auth required for anonymous)
+// ============================================
 router.post("/like/:id", async (req, res) => {
   try {
     const post = await Post.findById(req.params.id);
-
     if (!post) {
-      return res.status(404).json({
-        message: "Post not found",
-      });
+      return res.status(404).json({ message: "Post not found" });
     }
 
-    //
-    // INCREASE LIKE COUNT
-    //
     post.likes = (post.likes || 0) + 1;
-
     const updatedPost = await post.save();
 
-    //
-    // REALTIME SOCKET EVENT
-    //
     const io = req.app.get("io");
-
     if (io) {
       io.emit("like_updated", {
         postId: updatedPost._id.toString(),
@@ -85,60 +61,52 @@ router.post("/like/:id", async (req, res) => {
       });
     }
 
-    res.json({
-      likes: updatedPost.likes,
-    });
+    res.json({ likes: updatedPost.likes });
   } catch (err) {
     console.error("Like post error:", err);
-
-    res.status(500).json({
-      error: err.message,
-    });
+    res.status(500).json({ error: err.message });
   }
 });
 
-//
-// COMMENT ON POST
-//
+// ============================================
+// COMMENT ON POST (Public - No auth required)
+// ============================================
+// ============================================
+// COMMENT ON POST - FIXED
+// ============================================
 router.post("/comment/:id", async (req, res) => {
   try {
-    const post = await Post.findById(req.params.id);
+    console.log("📝 Comment request received:", {
+      postId: req.params.id,
+      body: req.body
+    });
 
+    const post = await Post.findById(req.params.id);
     if (!post) {
-      return res.status(404).json({
-        message: "Post not found",
-      });
+      return res.status(404).json({ message: "Post not found" });
     }
 
-    //
-    // CREATE COMMENT
-    //
+    // Get username from request body
+    const username = req.body.username || "Anonymous";
+    const content = req.body.content;
+
+    if (!content) {
+      return res.status(400).json({ message: "Comment content is required" });
+    }
+
     const newComment = {
-      content: req.body.content,
-      username: req.body.username || "anon_user",
+      content: content,
+      username: username,
       createdAt: new Date().toISOString(),
     };
 
-    //
-    // ENSURE COMMENTS ARRAY EXISTS
-    //
     post.comments = post.comments || [];
-
-    //
-    // ADD COMMENT TO TOP
-    //
     post.comments.unshift(newComment);
-
-    //
-    // SAVE UPDATED POST
-    //
     await post.save();
 
-    //
-    // REALTIME SOCKET EVENT
-    //
-    const io = req.app.get("io");
+    console.log("✅ Comment saved:", newComment);
 
+    const io = req.app.get("io");
     if (io) {
       io.emit("comment_added", {
         postId: post._id.toString(),
@@ -146,64 +114,86 @@ router.post("/comment/:id", async (req, res) => {
       });
     }
 
-    //
-    // RETURN COMMENT
-    //
     res.status(201).json(newComment);
-
   } catch (err) {
     console.error("Comment error:", err);
-
-    res.status(500).json({
-      error: err.message,
-    });
+    res.status(500).json({ error: err.message });
   }
 });
 
-//
-// REPOST POST
-//
+// ============================================
+// REPOST POST (Public - No auth required)
+// ============================================
 router.post("/repost/:id", async (req, res) => {
   try {
     const originalPost = await Post.findById(req.params.id);
-
     if (!originalPost) {
-      return res.status(404).json({
-        message: "Post not found",
-      });
+      return res.status(404).json({ message: "Post not found" });
     }
 
-    //
-    // CREATE REPOST
-    //
     const repost = new Post({
       content: originalPost.content,
-
-      username:
-        req.body.username || "anon_user",
-
+      username: req.body.username || "anon_user",
       repostOf: originalPost._id,
     });
 
     const savedRepost = await repost.save();
 
-    //
-    // REALTIME SOCKET EVENT
-    //
     const io = req.app.get("io");
-
     if (io) {
       io.emit("new_post", savedRepost);
     }
 
     res.status(201).json(savedRepost);
-
   } catch (err) {
     console.error("Repost error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
-    res.status(500).json({
-      error: err.message,
-    });
+// ============================================
+// DELETE POST (Protected - User can delete own posts)
+// ============================================
+router.delete("/:id", protect, async (req, res) => {
+  try {
+    const post = await Post.findById(req.params.id);
+    
+    if (!post) {
+      return res.status(404).json({ message: "Post not found" });
+    }
+    
+    // Check if user owns the post
+    if (post.authorId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: "Not authorized to delete this post" });
+    }
+    
+    await post.deleteOne();
+    
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("post_deleted", { postId: req.params.id });
+    }
+    
+    res.json({ message: "Post deleted successfully" });
+  } catch (err) {
+    console.error("Delete post error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
+// GET SINGLE POST
+// ============================================
+router.get("/:id", async (req, res) => {
+  try {
+    const post = await Post.findById(req.params.id);
+    if (!post) {
+      return res.status(404).json({ message: "Post not found" });
+    }
+    res.json(post);
+  } catch (err) {
+    console.error("Get post error:", err);
+    res.status(500).json({ error: err.message });
   }
 });
 

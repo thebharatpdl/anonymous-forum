@@ -5,18 +5,24 @@ class SocketService {
   constructor() {
     this.socket = null;
     this.userId = null;
+    this._queue = [];
   }
 
   connect(userId) {
-    if (this.socket?.connected) {
-      console.log('Socket already connected');
+    if (this.socket?.connected && this.userId === userId) {
       return this.socket;
     }
 
-    // Get base URL (remove /api/posts)
+    if (this.socket) {
+      this.socket.disconnect();
+      this.socket = null;
+    }
+
     const BASE_URL = API_URL.replace('/api/posts', '');
-    console.log('Connecting to socket at:', BASE_URL);
-    
+    console.log('Connecting to socket at:', BASE_URL, 'as user:', userId);
+
+    this.userId = userId;
+
     this.socket = io(BASE_URL, {
       transports: ['websocket', 'polling'],
       reconnection: true,
@@ -24,15 +30,18 @@ class SocketService {
       reconnectionDelay: 1000,
     });
 
-    this.userId = userId;
-
     this.socket.on('connect', () => {
-      console.log('✅ Socket connected');
-      this.socket?.emit('register', userId);
-    });
+      console.log('✅ Socket connected, registering user:', userId);
+      this.socket.emit('register', userId);
 
-    this.socket.on('registered', (data) => {
-      console.log('✅ Registered successfully:', data);
+      if (this._queue.length > 0) {
+        console.log(`📤 Flushing ${this._queue.length} queued emit(s)`);
+        this._queue.forEach(({ event, data }) => {
+          this.socket.emit(event, data);
+          console.log(`📤 Flushed ${event}:`, data);
+        });
+        this._queue = [];
+      }
     });
 
     this.socket.on('disconnect', () => {
@@ -51,6 +60,7 @@ class SocketService {
       this.socket.disconnect();
       this.socket = null;
       this.userId = null;
+      this._queue = [];
     }
   }
 
@@ -63,14 +73,14 @@ class SocketService {
       this.socket.emit(event, data);
       console.log(`📤 Emitted ${event}:`, data);
     } else {
-      console.log(`⚠️ Socket not connected, cannot emit ${event}`);
+      console.log(`⏳ Queued ${event} (socket not ready):`, data);
+      this._queue.push({ event, data });
     }
   }
 
   on(event, callback) {
     if (this.socket) {
       this.socket.on(event, callback);
-      console.log(`📡 Listening for ${event}`);
     }
   }
 
@@ -81,7 +91,6 @@ class SocketService {
       } else {
         this.socket.off(event);
       }
-      console.log(`🔇 Stopped listening for ${event}`);
     }
   }
 

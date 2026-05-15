@@ -1,5 +1,4 @@
-// mobile/app/chats.tsx
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -9,121 +8,73 @@ import {
   ActivityIndicator,
   Pressable,
   RefreshControl,
+  TextInput,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, useFocusEffect } from "expo-router";
-import { getOrCreateUserId } from "../services/userServices";
+import { getCurrentUser, getUserId } from "../services/authService";
+
+const API_URL = "http://192.168.1.69:5000/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Participant = {
-  userId: string;
-  name?: string;
-};
-
-type ChatRoom = {
-  roomId: string;
-  participants: Participant[];
-  lastMessage?: {
-    content: string;
-    senderId: string;
-    createdAt: string;
-  };
-  unreadCount?: number;
-  updatedAt: string;
+type UserItem = {
+  id: string;
+  anonymousName: string;
+  avatarColor: string;
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function formatRelativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "Just now";
-  if (mins < 60) return `${mins}m`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d`;
-  return new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" });
-}
-
 function getInitials(name?: string): string {
   if (!name) return "A";
-  return name
-    .split(" ")
-    .map((w) => w[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
+  return name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase();
 }
 
-// Stable list of avatar bg colors by index
 const AVATAR_COLORS = ["#EEF2FF", "#FEF3C7", "#DCFCE7", "#FCE7F3", "#E0F2FE"];
 const AVATAR_TEXT_COLORS = ["#6C63FF", "#D97706", "#16A34A", "#DB2777", "#0284C7"];
 
-// ─── Chat Row ─────────────────────────────────────────────────────────────────
+// ─── User Row Component ────────────────────────────────────────────────────────
 
-function ChatRow({
+function UserRow({
   item,
-  myUserId,
   index,
   onPress,
+  starting,
 }: {
-  item: ChatRoom;
-  myUserId: string;
+  item: UserItem;
   index: number;
   onPress: () => void;
+  starting: boolean;
 }) {
-  const other = item.participants.find((p) => p.userId !== myUserId);
-  const otherName = other?.name ?? "Anonymous";
-  const initials = getInitials(otherName);
   const colorIdx = index % AVATAR_COLORS.length;
-
-  const lastMsg = item.lastMessage;
-  const isMyLast = lastMsg?.senderId === myUserId;
-  const preview = lastMsg
-    ? `${isMyLast ? "You: " : ""}${lastMsg.content}`
-    : "Tap to start chatting";
-
-  const hasUnread = (item.unreadCount ?? 0) > 0;
-
+  
   return (
     <Pressable
-      style={({ pressed }) => [styles.chatRow, pressed && styles.chatRowPressed]}
+      style={({ pressed }) => [styles.userRow, pressed && styles.userRowPressed]}
       onPress={onPress}
+      disabled={starting}
     >
-      {/* Avatar */}
       <View style={[styles.avatar, { backgroundColor: AVATAR_COLORS[colorIdx] }]}>
-        <Text style={[styles.avatarText, { color: AVATAR_TEXT_COLORS[colorIdx] }]}>{initials}</Text>
+        <Text style={[styles.avatarText, { color: AVATAR_TEXT_COLORS[colorIdx] }]}>
+          {getInitials(item.anonymousName)}
+        </Text>
       </View>
-
-      {/* Body */}
-      <View style={styles.chatBody}>
-        <View style={styles.chatTop}>
-          <Text style={[styles.chatName, hasUnread && styles.chatNameUnread]} numberOfLines={1}>
-            {otherName}
-          </Text>
-          <Text style={[styles.chatTime, hasUnread && styles.chatTimeUnread]}>
-            {formatRelativeTime(item.updatedAt)}
-          </Text>
-        </View>
-        <View style={styles.chatBottom}>
-          <Text
-            style={[styles.chatPreview, hasUnread && styles.chatPreviewUnread]}
-            numberOfLines={1}
-          >
-            {preview}
-          </Text>
-          {hasUnread && (
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>
-                {(item.unreadCount ?? 0) > 99 ? "99+" : item.unreadCount}
-              </Text>
-            </View>
-          )}
-        </View>
+      
+      <View style={styles.userInfo}>
+        <Text style={styles.userName} numberOfLines={1}>
+          {item.anonymousName}
+        </Text>
+        <Text style={styles.userStatus}>Tap to start chatting</Text>
       </View>
+      
+      {starting ? (
+        <ActivityIndicator size="small" color="#6C63FF" />
+      ) : (
+        <Ionicons name="chatbubble-outline" size={20} color="#6C63FF" />
+      )}
     </Pressable>
   );
 }
@@ -132,49 +83,115 @@ function ChatRow({
 
 export default function ChatsScreen() {
   const router = useRouter();
-  const [chats, setChats] = useState<ChatRoom[]>([]);
+  const [users, setUsers] = useState<UserItem[]>([]);
+  const [filteredUsers, setFilteredUsers] = useState<UserItem[]>([]);
+  const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [myUserId, setMyUserId] = useState("");
+  const [startingChat, setStartingChat] = useState<string | null>(null);
+  const [myUserId, setMyUserId] = useState<string>("");
+  const [myUserName, setMyUserName] = useState<string>("");
 
-  // Reload when screen comes into focus (e.g. after returning from a chat)
-  useFocusEffect(
-    useCallback(() => {
-      loadChats();
-    }, [])
-  );
+  // Load users when screen mounts
+  useEffect(() => {
+    loadUsers();
+  }, []);
 
-  const loadChats = async (isRefresh = false) => {
+  // Filter users by search
+  useEffect(() => {
+    if (!search.trim()) {
+      setFilteredUsers(users);
+    } else {
+      setFilteredUsers(
+        users.filter((u) =>
+          u.anonymousName.toLowerCase().includes(search.toLowerCase())
+        )
+      );
+    }
+  }, [search, users]);
+
+  async function loadUsers(isRefresh = false) {
     if (isRefresh) setRefreshing(true);
-    const uid = await getOrCreateUserId();
-    setMyUserId(uid);
+    
+    // Get current user ID
+    const uid = await getUserId();
+    if (uid) setMyUserId(uid);
+    
+    const me = await getCurrentUser();
+    if (me) setMyUserName(me.anonymousName);
+    
     try {
-      const res = await fetch(`http://192.168.1.69:5000/api/chat/rooms/${uid}`);
-      const data: ChatRoom[] = await res.json();
-      // Sort newest first
-      data.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-      setChats(data);
+      const res = await fetch(`${API_URL}/auth/users`);
+      const data = await res.json();
+      // Exclude current user from list
+      const otherUsers = data.filter((u: UserItem) => u.id !== uid);
+      setUsers(otherUsers);
+      setFilteredUsers(otherUsers);
     } catch (err) {
-      console.log("Error loading chats:", err);
+      console.log("Error loading users:", err);
+      Alert.alert("Error", "Failed to load users");
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
+  }
+
+  // Create chat room and navigate
+  const startChat = async (otherUser: UserItem) => {
+    if (!myUserId) {
+      Alert.alert("Error", "Please login first");
+      return;
+    }
+    
+    setStartingChat(otherUser.id);
+    
+    try {
+      const res = await fetch(`${API_URL}/chat/room`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId1: myUserId,
+          userId2: otherUser.id,
+          userName1: myUserName,
+          userName2: otherUser.anonymousName,
+        }),
+      });
+      
+      const room = await res.json();
+      if (!room.roomId) throw new Error("No roomId returned");
+      
+      router.push({
+        pathname: "/chat",
+        params: {
+          roomId: room.roomId,
+          otherUserId: otherUser.id,
+          otherUserName: otherUser.anonymousName,
+        },
+      });
+    } catch (err) {
+      console.log("Error starting chat:", err);
+      Alert.alert("Error", "Could not start chat. Please try again.");
+    } finally {
+      setStartingChat(null);
+    }
   };
 
-  const handleOpen = (item: ChatRoom) => {
-    const other = item.participants.find((p) => p.userId !== myUserId);
-    router.push({
-      pathname: "/chat",
-      params: {
-        roomId: item.roomId,
-        otherUserId: other?.userId ?? "",
-        otherUserName: other?.name ?? "Anonymous",
-      },
-    });
-  };
-
-  // ── Render ─────────────────────────────────────────────────────────────────
+  // Render empty state
+  const renderEmptyState = () => (
+    <View style={styles.emptyState}>
+      <View style={styles.emptyIcon}>
+        <Ionicons name="people-outline" size={48} color="#C4C4D4" />
+      </View>
+      <Text style={styles.emptyTitle}>
+        {search ? "No users found" : "No other users yet"}
+      </Text>
+      <Text style={styles.emptySub}>
+        {search 
+          ? "Try a different search term" 
+          : "Check back later for more anonymous users"}
+      </Text>
+    </View>
+  );
 
   if (loading) {
     return (
@@ -185,66 +202,61 @@ export default function ChatsScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
-      {/* Header */}
+    <SafeAreaView style={styles.container} edges={["top"]}>
+      {/* Header - Fixed at top with better styling */}
       <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => router.back()}
+        <TouchableOpacity 
+          onPress={() => router.back()} 
           style={styles.headerBack}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <Ionicons name="arrow-back" size={22} color="#1C1E21" />
+          <Ionicons name="arrow-back" size={24} color="#1C1E21" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Messages</Text>
-        <TouchableOpacity
-          style={styles.headerAction}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <Ionicons name="create-outline" size={22} color="#1C1E21" />
-        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Chats</Text>
+        <View style={styles.headerPlaceholder} />
       </View>
 
-      {/* Search pill (decorative / future) */}
+      {/* Search Bar */}
       <View style={styles.searchBar}>
-        <Ionicons name="search-outline" size={16} color="#9CA3AF" />
-        <Text style={styles.searchPlaceholder}>Search messages</Text>
+        <Ionicons name="search-outline" size={18} color="#9CA3AF" />
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Search people..."
+          placeholderTextColor="#9CA3AF"
+          value={search}
+          onChangeText={setSearch}
+        />
+        {search.length > 0 && (
+          <TouchableOpacity onPress={() => setSearch("")}>
+            <Ionicons name="close-circle" size={18} color="#9CA3AF" />
+          </TouchableOpacity>
+        )}
       </View>
 
-      {/* List */}
-      {chats.length === 0 ? (
-        <View style={styles.emptyState}>
-          <View style={styles.emptyIcon}>
-            <Ionicons name="chatbubbles-outline" size={36} color="#6C63FF" />
-          </View>
-          <Text style={styles.emptyTitle}>No messages yet</Text>
-          <Text style={styles.emptySub}>
-            When you start a conversation, it'll show up here.
-          </Text>
-        </View>
-      ) : (
-        <FlatList
-          data={chats}
-          keyExtractor={(item) => item.roomId}
-          renderItem={({ item, index }) => (
-            <ChatRow
-              item={item}
-              myUserId={myUserId}
-              index={index}
-              onPress={() => handleOpen(item)}
-            />
-          )}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={() => loadChats(true)}
-              tintColor="#6C63FF"
-            />
-          }
-          ItemSeparatorComponent={() => <View style={styles.separator} />}
-          contentContainerStyle={styles.listContent}
-          showsVerticalScrollIndicator={false}
-        />
-      )}
+      {/* Users List */}
+      <FlatList
+        data={filteredUsers}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item, index }) => (
+          <UserRow
+            item={item}
+            index={index}
+            onPress={() => startChat(item)}
+            starting={startingChat === item.id}
+          />
+        )}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => loadUsers(true)}
+            tintColor="#6C63FF"
+          />
+        }
+        ItemSeparatorComponent={() => <View style={styles.separator} />}
+        ListEmptyComponent={renderEmptyState}
+        contentContainerStyle={filteredUsers.length === 0 ? styles.emptyList : styles.listContent}
+        showsVerticalScrollIndicator={false}
+      />
     </SafeAreaView>
   );
 }
@@ -252,112 +264,142 @@ export default function ChatsScreen() {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#FFFFFF" },
-
+  container: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+  },
   loaderContainer: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#FFFFFF",
   },
-
-  // Header
+  
+  // Header - Fixed at top
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 8,
-    paddingVertical: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     backgroundColor: "#FFFFFF",
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#E4E6EB",
+    borderBottomWidth: 1,
+    borderBottomColor: "#E8ECEF",
   },
-  headerBack: { padding: 8 },
-  headerTitle: { fontSize: 17, fontWeight: "700", color: "#1C1E21" },
-  headerAction: { padding: 8 },
-
-  // Search
+  headerBack: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1C1E21",
+  },
+  headerPlaceholder: {
+    width: 40,
+  },
+  
+  // Search Bar
   searchBar: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    margin: 12,
-    marginTop: 10,
-    backgroundColor: "#F0F2F5",
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    gap: 10,
+    margin: 16,
+    marginTop: 12,
+    marginBottom: 8,
+    backgroundColor: "#F2F3F7",
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
-  searchPlaceholder: { fontSize: 14, color: "#9CA3AF" },
-
+  searchInput: {
+    flex: 1,
+    fontSize: 16,
+    color: "#1C1E21",
+    padding: 0,
+  },
+  
   // List
-  listContent: { paddingBottom: 32 },
-  separator: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: "#F0F2F5",
-    marginLeft: 76,
+  listContent: {
+    paddingBottom: 32,
   },
-
-  // Chat Row
-  chatRow: {
+  emptyList: {
+    flex: 1,
+  },
+  separator: {
+    height: 0.5,
+    backgroundColor: "#E8ECEF",
+    marginLeft: 80,
+  },
+  
+  // User Row
+  userRow: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 14,
     backgroundColor: "#FFFFFF",
-    gap: 12,
+    gap: 14,
   },
-  chatRowPressed: { backgroundColor: "#F8F9FC" },
-
+  userRowPressed: {
+    backgroundColor: "#F8F9FC",
+  },
   avatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
   },
-  avatarText: { fontSize: 17, fontWeight: "700" },
-
-  chatBody: { flex: 1, gap: 3 },
-  chatTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  chatName: { fontSize: 15, fontWeight: "500", color: "#1C1E21", flex: 1, marginRight: 8 },
-  chatNameUnread: { fontWeight: "700" },
-  chatTime: { fontSize: 12, color: "#9CA3AF", flexShrink: 0 },
-  chatTimeUnread: { color: "#6C63FF", fontWeight: "600" },
-
-  chatBottom: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  chatPreview: { fontSize: 13.5, color: "#65676B", flex: 1, marginRight: 8 },
-  chatPreviewUnread: { color: "#1C1E21", fontWeight: "500" },
-
-  badge: {
-    backgroundColor: "#6C63FF",
-    borderRadius: 10,
-    minWidth: 20,
-    height: 20,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 5,
-    flexShrink: 0,
+  avatarText: {
+    fontSize: 18,
+    fontWeight: "700",
   },
-  badgeText: { fontSize: 11, fontWeight: "700", color: "#FFFFFF" },
-
-  // Empty
+  userInfo: {
+    flex: 1,
+    gap: 4,
+  },
+  userName: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#1C1E21",
+  },
+  userStatus: {
+    fontSize: 13,
+    color: "#9CA3AF",
+  },
+  
+  // Empty State
   emptyState: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 48,
+    paddingTop: 100,
   },
   emptyIcon: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     backgroundColor: "#EEF2FF",
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 20,
   },
-  emptyTitle: { fontSize: 18, fontWeight: "700", color: "#1C1E21" },
-  emptySub: { fontSize: 14, color: "#65676B", textAlign: "center", marginTop: 8, lineHeight: 20 },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1C1E21",
+    marginBottom: 8,
+  },
+  emptySub: {
+    fontSize: 14,
+    color: "#65676B",
+    textAlign: "center",
+    lineHeight: 20,
+  },
 });

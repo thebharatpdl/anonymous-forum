@@ -9,21 +9,17 @@ import {
   Animated,
   Dimensions,
   StatusBar,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppSelector } from '../../src/redux/hooks';
 import { useRouter } from 'expo-router';
+import { getCurrentUser, User } from '../../services/authService';
+import { logout } from '../../services/authService';
 
 const { width } = Dimensions.get('window');
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-function generateId(): string {
-  return Math.random().toString(36).substring(2, 10).toUpperCase();
-}
-
-// ─── Sub-components ──────────────────────────────────────────────────────────
-
-/** Stat tile component */
+// ─── Stat Tile Component ─────────────────────────────────────────────────────
 function StatTile({
   icon,
   value,
@@ -58,8 +54,8 @@ function StatTile({
   );
 }
 
-/** Recent post card */
-function PostCard({ post, index }: { post: any; index: number }) {
+// ─── Recent Post Card ────────────────────────────────────────────────────────
+function RecentPostCard({ post, index }: { post: any; index: number }) {
   const fade = useRef(new Animated.Value(0)).current;
   const slide = useRef(new Animated.Value(16)).current;
   
@@ -91,17 +87,37 @@ function PostCard({ post, index }: { post: any; index: number }) {
   );
 }
 
-// ─── Main screen ─────────────────────────────────────────────────────────────
+// ─── Main Profile Screen ─────────────────────────────────────────────────────
 export default function ProfileScreen() {
   const router = useRouter();
   const { posts } = useAppSelector((state) => state.posts);
-  const myPosts = posts.filter((p) => p.username === 'anon_user');
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  // Get current user from auth
+  useEffect(() => {
+    loadUser();
+  }, []);
+
+  const loadUser = async () => {
+    const user = await getCurrentUser();
+    setCurrentUser(user);
+    setLoading(false);
+  };
+
+  // Filter posts by current user's anonymous name
+  const myPosts = posts.filter((p) => p.username === currentUser?.anonymousName);
   const totalLikes = myPosts.reduce((s, p) => s + (p.likes || 0), 0);
   const topPost = myPosts.length
     ? myPosts.reduce((b, p) => ((p.likes || 0) > (b.likes || 0) ? p : b), myPosts[0])
     : null;
 
-  const [anonId] = useState(() => generateId());
+  // Stats for display
+  const stats = [
+    { label: 'Posts', value: myPosts.length.toString(), icon: 'chatbubble-outline', accent: '#6366F1' },
+    { label: 'Likes', value: totalLikes.toString(), icon: 'heart-outline', accent: '#F43F5E' },
+    { label: 'Top Post', value: topPost ? `${topPost.likes || 0}` : '0', icon: 'trophy-outline', accent: '#F59E0B' },
+  ];
 
   // Header animations
   const headerFade = useRef(new Animated.Value(0)).current;
@@ -116,6 +132,19 @@ export default function ProfileScreen() {
     ]).start();
   }, []);
 
+  const handleLogout = async () => {
+    await logout();
+    router.replace('/');
+  };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#6366F1" />
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="dark-content" backgroundColor="#F8F9FC" />
@@ -126,9 +155,11 @@ export default function ProfileScreen() {
         <View style={styles.topNav}>
           <View style={styles.topNavLeft}>
             <View style={styles.signalDot} />
-            <Text style={styles.topNavText}></Text>
+            <Text style={styles.topNavText}>PROFILE</Text>
           </View>
-         
+          <TouchableOpacity onPress={handleLogout} style={styles.topNavBtn}>
+            <Ionicons name="log-out-outline" size={20} color="#6366F1" />
+          </TouchableOpacity>
         </View>
 
         {/* ── HERO SECTION ── */}
@@ -150,10 +181,10 @@ export default function ProfileScreen() {
             </View>
           </View>
 
-          {/* Identity */}
+          {/* Identity - SHOWING REAL ANONYMOUS NAME FROM BACKEND */}
           <View style={styles.identityBlock}>
-            <Text style={styles.identityName}>Anonymous User</Text>
-            <Text style={styles.identityId}>ID: {anonId}</Text>
+            <Text style={styles.identityName}>{currentUser?.anonymousName || 'Anonymous User'}</Text>
+            <Text style={styles.identityId}>ID: {currentUser?.id?.slice(-8) || '------'}</Text>
             <View style={styles.badgeRow}>
               <View style={styles.badge}>
                 <Ionicons name="shield-checkmark" size={12} color="#10B981" />
@@ -174,9 +205,36 @@ export default function ProfileScreen() {
           </View>
         </Animated.View>
 
-      
+        {/* ── STATS SECTION ── */}
+        <View style={styles.statsHeader}>
+          <Text style={styles.statsLabel}>Statistics</Text>
+          <View style={styles.statsLine} />
+        </View>
 
- 
+        <View style={styles.statGrid}>
+          {stats.map((stat, index) => (
+            <StatTile
+              key={index}
+              icon={stat.icon}
+              value={stat.value}
+              label={stat.label}
+              delay={100 + index * 80}
+              accent={stat.accent}
+            />
+          ))}
+        </View>
+
+        {/* ── ACTION BUTTONS ── */}
+        <View style={styles.actionRow}>
+          <TouchableOpacity style={styles.actionBtnOutline} onPress={() => router.push('/')}>
+            <Ionicons name="home-outline" size={18} color="#6366F1" />
+            <Text style={styles.actionBtnOutlineText}>Feed</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.actionBtnSolid} onPress={() => router.push('/add_post')}>
+            <Ionicons name="add" size={18} color="#FFFFFF" />
+            <Text style={styles.actionBtnSolidText}>New Post</Text>
+          </TouchableOpacity>
+        </View>
 
         {/* ── RECENT POSTS ── */}
         <View style={styles.postsHeader}>
@@ -196,7 +254,7 @@ export default function ProfileScreen() {
         ) : (
           <View style={styles.postsGrid}>
             {myPosts.slice(0, 4).map((post, i) => (
-              <PostCard key={post._id} post={post} index={i} />
+              <RecentPostCard key={post._id} post={post} index={i} />
             ))}
             {myPosts.length > 4 && (
               <TouchableOpacity style={styles.viewAllButton} onPress={() => router.push('/')}>
@@ -209,8 +267,15 @@ export default function ProfileScreen() {
 
         {/* ── PRIVACY CARD ── */}
         <View style={styles.privacyCard}>
-         
-          
+          <View style={styles.privacyIconWrap}>
+            <Ionicons name="shield-checkmark" size={24} color="#10B981" />
+          </View>
+          <View style={styles.privacyBody}>
+            <Text style={styles.privacyTitle}>Your Privacy is Protected</Text>
+            <Text style={styles.privacyText}>
+              Your identity remains completely anonymous. No personal information is ever shared.
+            </Text>
+          </View>
         </View>
 
       </ScrollView>
@@ -222,6 +287,12 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
+    backgroundColor: '#F8F9FC',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
     backgroundColor: '#F8F9FC',
   },
 
@@ -626,7 +697,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F0FDF4',
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#f9f9f9',
+    borderColor: '#D1FAE5',
   },
   privacyIconWrap: {
     width: 48,
