@@ -61,7 +61,6 @@ io.on("connection", (socket) => {
   });
 
   socket.on("send_message", async ({ roomId, message, senderId, senderName }) => {
-    // Guard: reject if any critical field is missing
     if (!roomId || roomId === "undefined" || !senderId || !message) {
       console.error("❌ send_message missing fields:", {
         roomId,
@@ -81,20 +80,17 @@ io.on("connection", (socket) => {
         senderId,
         senderName: senderName || "Anonymous",
         readBy: [senderId],
+        reactions: [],
         createdAt: new Date(),
       };
 
-      // Re-join room in case of reconnect
       socket.join(roomId);
 
-      // ✅ upsert: create the room document if it doesn't exist yet
-      // This is a safety net — the room should already exist from POST /api/chat/room
       const updatedRoom = await ChatRoom.findOneAndUpdate(
         { roomId },
         {
           $push: { messages: newMessage },
           $set: { updatedAt: new Date() },
-          // Only set these fields on insert (when room doesn't exist)
           $setOnInsert: {
             roomId,
             participants: [{ userId: senderId, userName: senderName || "Anonymous" }],
@@ -102,8 +98,8 @@ io.on("connection", (socket) => {
           },
         },
         {
-          returnDocument: "after", // fixes the Mongoose deprecation warning too
-          upsert: true,            // ✅ creates the document if not found
+          returnDocument: "after",
+          upsert: true,
         }
       );
 
@@ -119,6 +115,66 @@ io.on("connection", (socket) => {
       io.emit("chat_updated", { roomId });
     } catch (error) {
       console.error("Error sending message:", error);
+    }
+  });
+
+  // ✅ REACTION HANDLER - Complete working version
+  socket.on("react_message", async ({ roomId, messageId, emoji, userId }) => {
+    console.log("🔥 Reaction received:", { roomId, messageId, emoji, userId });
+    
+    if (!roomId || !messageId || !emoji || !userId) {
+      console.error("❌ Missing fields:", { roomId, messageId, emoji, userId });
+      return;
+    }
+
+    try {
+      const ChatRoom = require("./src/models/ChatRoom");
+      
+      socket.join(roomId);
+      console.log(`📡 Socket in room ${roomId}`);
+
+      const room = await ChatRoom.findOne({ roomId });
+      if (!room) {
+        console.error("❌ Room not found:", roomId);
+        return;
+      }
+
+      const message = room.messages.id(messageId);
+      if (!message) {
+        console.error("❌ Message not found:", messageId);
+        return;
+      }
+
+      if (!message.reactions) {
+        message.reactions = [];
+      }
+
+      const existingIdx = message.reactions.findIndex(
+        (r) => r.emoji === emoji && r.userId === userId
+      );
+
+      if (existingIdx > -1) {
+        message.reactions.splice(existingIdx, 1);
+        console.log(`➖ Reaction ${emoji} REMOVED`);
+      } else {
+        message.reactions.push({ emoji, userId });
+        console.log(`➕ Reaction ${emoji} ADDED`);
+      }
+
+      // Update timestamp manually
+      room.updatedAt = new Date();
+      
+      await room.save();
+      console.log(`💾 Saved. Total reactions: ${message.reactions.length}`);
+
+      io.to(roomId).emit("reaction_updated", {
+        messageId: messageId,
+        reactions: message.reactions,
+      });
+      console.log(`📡 Broadcasted to room ${roomId}`);
+
+    } catch (error) {
+      console.error("❌ Error handling reaction:", error);
     }
   });
 
