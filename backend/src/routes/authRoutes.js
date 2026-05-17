@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const User = require("../models/User");
 const generateToken = require("../utils/generateToken");
+const { protect } = require("../middleware/authMiddleware");
 
 const generateAnonymousName = () => {
   const prefixes = ["Silent", "Hidden", "Shadow", "Ghost", "Mystic", "Cosmic", "Dark", "Light"];
@@ -12,7 +13,7 @@ const generateAnonymousName = () => {
   return `${prefix}${suffix}_${numbers}`;
 };
 
-// ✅ NEW — GET ALL USERS (for People tab)
+// ✅ GET ALL USERS (for People tab)
 router.get("/users", async (req, res) => {
   try {
     const users = await User.find({})
@@ -33,6 +34,53 @@ router.get("/users", async (req, res) => {
   }
 });
 
+// ✅ SAVE PUSH TOKEN
+router.post("/push-token", protect, async (req, res) => {
+  try {
+    const { pushToken } = req.body;
+    const user = await User.findById(req.user._id);
+    
+    if (!pushToken) {
+      return res.status(400).json({ error: "Push token required" });
+    }
+    
+    if (!user.pushTokens) {
+      user.pushTokens = [];
+    }
+    
+    if (!user.pushTokens.includes(pushToken)) {
+      user.pushTokens.push(pushToken);
+      await user.save();
+      console.log(`✅ Push token added for user ${user.anonymousName}`);
+    }
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Error saving push token:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ✅ REMOVE PUSH TOKEN (on logout)
+router.post("/push-token/remove", protect, async (req, res) => {
+  try {
+    const { pushToken } = req.body;
+    const user = await User.findById(req.user._id);
+    
+    if (user.pushTokens) {
+      user.pushTokens = user.pushTokens.filter(t => t !== pushToken);
+      await user.save();
+      console.log(`✅ Push token removed for user ${user.anonymousName}`);
+    }
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Error removing push token:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ✅ ANONYMOUS REGISTER - Added bio field
 router.post("/anonymous/register", async (req, res) => {
   try {
     const timestamp = Date.now();
@@ -41,7 +89,12 @@ router.post("/anonymous/register", async (req, res) => {
     const fakePassword = Math.random().toString(36).substring(2, 20);
     const anonymousName = generateAnonymousName();
 
-    const user = new User({ email: fakeEmail, password: fakePassword, anonymousName });
+    const user = new User({ 
+      email: fakeEmail, 
+      password: fakePassword, 
+      anonymousName,
+      bio: "", // ✅ Added bio field
+    });
     await user.save();
     const token = generateToken(user._id);
 
@@ -55,6 +108,7 @@ router.post("/anonymous/register", async (req, res) => {
         email: user.email,
         anonymousName: user.anonymousName,
         avatarColor: user.avatarColor || "#6C63FF",
+        bio: user.bio || "", // ✅ Added bio field
       },
     });
   } catch (error) {
@@ -63,6 +117,7 @@ router.post("/anonymous/register", async (req, res) => {
   }
 });
 
+// ✅ REGULAR REGISTER - Added bio field
 router.post("/register", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -70,7 +125,12 @@ router.post("/register", async (req, res) => {
     if (existingUser) return res.status(400).json({ error: "Email already registered" });
 
     const anonymousName = generateAnonymousName();
-    const user = new User({ email, password, anonymousName });
+    const user = new User({ 
+      email, 
+      password, 
+      anonymousName,
+      bio: "", // ✅ Added bio field
+    });
     await user.save();
     const token = generateToken(user._id);
 
@@ -81,6 +141,7 @@ router.post("/register", async (req, res) => {
         email: user.email,
         anonymousName: user.anonymousName,
         avatarColor: user.avatarColor,
+        bio: user.bio || "", // ✅ Added bio field
       },
     });
   } catch (error) {
@@ -89,6 +150,7 @@ router.post("/register", async (req, res) => {
   }
 });
 
+// ✅ LOGIN - Added bio field
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -106,6 +168,7 @@ router.post("/login", async (req, res) => {
         email: user.email,
         anonymousName: user.anonymousName,
         avatarColor: user.avatarColor,
+        bio: user.bio || "", // ✅ Added bio field
       },
     });
   } catch (error) {
@@ -114,25 +177,44 @@ router.post("/login", async (req, res) => {
   }
 });
 
-router.get("/me", async (req, res) => {
+// ✅ GET CURRENT USER - Added bio field
+router.get("/me", protect, async (req, res) => {
   try {
-    const token = req.headers.authorization?.split(" ")[1];
-    if (!token) return res.status(401).json({ error: "No token provided" });
-
-    const jwt = require("jsonwebtoken");
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "your_secret_key_here");
-    const user = await User.findById(decoded.userId).select("-password");
-    if (!user) return res.status(404).json({ error: "User not found" });
-
     res.json({
-      id: user._id.toString(),
-      email: user.email,
-      anonymousName: user.anonymousName,
-      avatarColor: user.avatarColor,
+      id: req.user._id.toString(),
+      email: req.user.email,
+      anonymousName: req.user.anonymousName,
+      avatarColor: req.user.avatarColor,
+      bio: req.user.bio || "", // ✅ Added bio field
     });
   } catch (error) {
     console.error("Get user error:", error);
     res.status(401).json({ error: "Invalid token" });
+  }
+});
+
+// ✅ UPDATE USER PROFILE
+router.put("/profile", protect, async (req, res) => {
+  try {
+    const { bio } = req.body;
+    
+    // Only update bio (display name is fixed for anonymous users)
+    if (bio !== undefined) {
+      req.user.bio = bio;
+    }
+    
+    await req.user.save();
+    
+    res.json({
+      id: req.user._id.toString(),
+      email: req.user.email,
+      anonymousName: req.user.anonymousName,
+      avatarColor: req.user.avatarColor,
+      bio: req.user.bio || "",
+    });
+  } catch (error) {
+    console.error("Update profile error:", error);
+    res.status(500).json({ error: error.message });
   }
 });
 

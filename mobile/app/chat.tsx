@@ -20,6 +20,8 @@ import socketService from "../services/socket";
 import { getCurrentUser } from "../services/authService";
 import MessageBubble, { Message } from "../components/MessageBubble";
 import ReactionPicker from "../components/ReactionPicker";
+import ChatMenu from "../components/ChatMenu";
+import ChatSearch from "../components/ChatSearch";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -107,6 +109,10 @@ export default function ChatScreen() {
   const [pickerIsMyMessage, setPickerIsMyMessage] = useState(false);
   const [pickerBubbleY, setPickerBubbleY] = useState(0);
 
+  // Chat Menu & Search
+  const [menuVisible, setMenuVisible] = useState(false);
+  const [searchVisible, setSearchVisible] = useState(false);
+
   const flatListRef = useRef<FlatList>(null);
   const typingTimeoutRef = useRef<any>(null);
   const userIdRef = useRef("");
@@ -131,12 +137,9 @@ export default function ChatScreen() {
       setUserName(user.anonymousName);
       userIdRef.current = user.id;
 
-      // ✅ Connect first
       socketService.connect(user.id);
 
-      // ✅ Register listeners immediately after connect
       socketService.on("new_message", (message: Message) => {
-        console.log("📥 new_message received:", message._id);
         setMessages((prev) => [
           ...prev,
           { ...message, reactions: message.reactions ?? [] },
@@ -149,7 +152,6 @@ export default function ChatScreen() {
       });
 
       socketService.on("reaction_updated", ({ messageId, reactions }: { messageId: string; reactions: Reaction[] }) => {
-        console.log("😀 reaction_updated received:", messageId, reactions.length);
         setMessages((prev) =>
           prev.map((m) => (m._id === messageId ? { ...m, reactions } : m))
         );
@@ -241,13 +243,16 @@ export default function ChatScreen() {
 
   const handleReact = (messageId: string, emoji: string) => {
     if (!messageId || !userId) return;
-    console.log("🔥 Sending reaction:", { roomId, messageId, emoji, userId });
     socketService.emit("react_message", {
       roomId,
       messageId,
       emoji,
       userId,
     });
+  };
+
+  const scrollToMessage = (index: number) => {
+    flatListRef.current?.scrollToIndex({ index, animated: true });
   };
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -291,6 +296,26 @@ export default function ChatScreen() {
         onClose={() => setPickerVisible(false)}
       />
 
+      {/* Chat Menu Modal */}
+      <ChatMenu
+        visible={menuVisible}
+        onClose={() => setMenuVisible(false)}
+        onSearch={() => {
+          setMenuVisible(false);
+          setSearchVisible(true);
+        }}
+        onBlock={() => Alert.alert("Blocked", "User has been blocked (Demo)")}
+        onDelete={() => Alert.alert("Deleted", "Chat deleted (Demo)")}
+      />
+
+      {/* Chat Search Modal */}
+      <ChatSearch
+        visible={searchVisible}
+        onClose={() => setSearchVisible(false)}
+        messages={messages}
+        onResultPress={scrollToMessage}
+      />
+
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.headerBack}>
@@ -310,7 +335,7 @@ export default function ChatScreen() {
             </Text>
           </View>
         </View>
-        <TouchableOpacity style={styles.headerAction}>
+        <TouchableOpacity onPress={() => setMenuVisible(true)} style={styles.headerAction}>
           <Ionicons name="ellipsis-vertical" size={20} color="#1C1E21" />
         </TouchableOpacity>
       </View>
@@ -324,6 +349,9 @@ export default function ChatScreen() {
         contentContainerStyle={styles.messagesList}
         onLayout={() => flatListRef.current?.scrollToEnd({ animated: false })}
         showsVerticalScrollIndicator={false}
+        onScrollToIndexFailed={(info) => {
+          setTimeout(() => flatListRef.current?.scrollToIndex({ index: info.index, animated: true }), 100);
+        }}
         ListEmptyComponent={
           <View style={styles.emptyChat}>
             <View style={styles.emptyChatIcon}>

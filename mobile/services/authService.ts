@@ -10,6 +10,7 @@ export interface User {
   email: string;
   anonymousName: string;
   avatarColor: string;
+  bio?: string;
 }
 
 // Sanitize user — ensures id is always a plain string no matter what the
@@ -32,6 +33,7 @@ const sanitizeUser = (raw: any): User => {
     email: raw?.email ?? "",
     anonymousName: raw?.anonymousName ?? "Anonymous",
     avatarColor: raw?.avatarColor ?? "#6C63FF",
+    bio: raw?.bio ?? "", // ✅ Added bio field
   };
 };
 
@@ -41,11 +43,11 @@ export const anonymousRegister = async (): Promise<{ token: string; user: User }
 
   const user = sanitizeUser(response.data.user);
 
-  console.log("✅ Registered user:", JSON.stringify(user)); // keep this for now
+  console.log("✅ Registered user:", JSON.stringify(user));
 
   if (response.data.token) {
     await AsyncStorage.setItem(TOKEN_KEY, response.data.token);
-    await AsyncStorage.setItem(USER_KEY, JSON.stringify(user)); // store sanitized
+    await AsyncStorage.setItem(USER_KEY, JSON.stringify(user));
   }
 
   return { token: response.data.token, user };
@@ -95,4 +97,30 @@ export const getUserId = async (): Promise<string | null> => {
 export const logout = async (): Promise<void> => {
   await AsyncStorage.removeItem(TOKEN_KEY);
   await AsyncStorage.removeItem(USER_KEY);
+};
+
+// Update user profile (bio only for anonymous users)
+export const updateUserProfile = async (data: { bio?: string }) => {
+  const token = await getToken();
+  const response = await fetch('http://192.168.1.69:5000/api/auth/profile', {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
+    body: JSON.stringify(data),
+  });
+  
+  const updatedUser = await response.json();
+  
+  // Update stored user
+  const currentUser = await getCurrentUser();
+  const mergedUser = { 
+    ...currentUser, 
+    ...updatedUser,
+    bio: updatedUser.bio || data.bio || "", // Ensure bio is saved
+  };
+  await AsyncStorage.setItem(USER_KEY, JSON.stringify(mergedUser));
+  
+  return mergedUser as User;
 };

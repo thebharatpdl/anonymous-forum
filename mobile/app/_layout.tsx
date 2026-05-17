@@ -20,6 +20,8 @@ export default function RootLayout() {
         {/* Chat screens */}
         <Stack.Screen name="chats" options={{ headerShown: false }} />
         <Stack.Screen name="chat" options={{ headerShown: false }} />
+     
+     <Stack.Screen name="notifications" options={{ headerShown: false }} />
       </Stack>
       <StatusBar style="auto" />
     </Provider>

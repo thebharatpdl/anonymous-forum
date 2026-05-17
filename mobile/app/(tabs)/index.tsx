@@ -15,20 +15,19 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { useAppDispatch, useAppSelector } from "../../src/redux/hooks";
-import { 
-  fetchPosts, 
-  addNewPostRealtime, 
+import {
+  fetchPosts,
+  addNewPostRealtime,
   updateLikeRealtime,
   setSocketConnected,
-  Post 
+  Post,
 } from "../../src/redux/postsSlice";
 import PostCard from "../../components/PostCard";
 import socketService from "../../services/socket";
 import { getUserId } from "../../services/authService";
 
-// Constants
 const INITIAL_NUM_TO_RENDER = 8;
 const MAX_TO_RENDER_PER_BATCH = 10;
 const WINDOW_SIZE = 10;
@@ -39,100 +38,54 @@ export default function HomeScreen() {
   const { posts, loading, isConnected } = useAppSelector((state) => state.posts);
   const [refreshing, setRefreshing] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(3);
   const flatListRef = useRef<FlatList>(null);
-  
   const scrollY = useRef(new Animated.Value(0)).current;
 
-  // Track keyboard visibility
+  // Keyboard
   useEffect(() => {
-    const keyboardDidShowListener = Keyboard.addListener('keyboardDidShow', () => {
-      setIsKeyboardVisible(true);
-    });
-    const keyboardDidHideListener = Keyboard.addListener('keyboardDidHide', () => {
-      setIsKeyboardVisible(false);
-    });
-
-    return () => {
-      keyboardDidShowListener.remove();
-      keyboardDidHideListener.remove();
-    };
+    const show = Keyboard.addListener("keyboardDidShow", () => setIsKeyboardVisible(true));
+    const hide = Keyboard.addListener("keyboardDidHide", () => setIsKeyboardVisible(false));
+    return () => { show.remove(); hide.remove(); };
   }, []);
 
-  // Get user ID from auth service
   const getCurrentUserId = useCallback(async () => {
-    const userId = await getUserId();
-    return userId || '';
+    return (await getUserId()) || "";
   }, []);
 
-  // Handle new post from socket
-  const handleNewPost = useCallback((newPost: Post) => {
-    console.log('📱 New post received:', newPost);
-    dispatch(addNewPostRealtime(newPost));
-  }, [dispatch]);
+  const handleNewPost = useCallback((p: Post) => dispatch(addNewPostRealtime(p)), [dispatch]);
+  const handleLikeUpdate = useCallback((d: { postId: string; likes: number }) => dispatch(updateLikeRealtime(d)), [dispatch]);
+  const handleConnect = useCallback(() => dispatch(setSocketConnected(true)), [dispatch]);
+  const handleDisconnect = useCallback(() => dispatch(setSocketConnected(false)), [dispatch]);
 
-  // Handle like update from socket
-  const handleLikeUpdate = useCallback((data: { postId: string; likes: number }) => {
-    console.log('❤️ Like update received:', data);
-    dispatch(updateLikeRealtime(data));
-  }, [dispatch]);
-
-  // Handle socket connection
-  const handleConnect = useCallback(() => {
-    dispatch(setSocketConnected(true));
-  }, [dispatch]);
-
-  // Handle socket disconnection
-  const handleDisconnect = useCallback(() => {
-    dispatch(setSocketConnected(false));
-  }, [dispatch]);
-
-  // Setup socket connection and listeners
   useEffect(() => {
     setupSocketConnection();
-    
-    return () => {
-      cleanupSocket();
-    };
+    return () => cleanupSocket();
   }, []);
 
   const setupSocketConnection = async () => {
     try {
       const userId = await getCurrentUserId();
-      if (!userId) {
-        console.log('No user ID yet, waiting for auth');
-        return;
-      }
+      if (!userId) return;
       socketService.connect(userId);
-
-      socketService.on('new_post', handleNewPost);
-      socketService.on('like_updated', handleLikeUpdate);
-      socketService.on('connect', handleConnect);
-      socketService.on('disconnect', handleDisconnect);
-    } catch (error) {
-      console.log('Error setting up socket:', error);
+      socketService.on("new_post", handleNewPost);
+      socketService.on("like_updated", handleLikeUpdate);
+      socketService.on("connect", handleConnect);
+      socketService.on("disconnect", handleDisconnect);
+    } catch (e) {
+      console.log("Socket setup error:", e);
     }
   };
 
   const cleanupSocket = () => {
-    socketService.off('new_post', handleNewPost);
-    socketService.off('like_updated', handleLikeUpdate);
-    socketService.off('connect', handleConnect);
-    socketService.off('disconnect', handleDisconnect);
+    socketService.off("new_post", handleNewPost);
+    socketService.off("like_updated", handleLikeUpdate);
+    socketService.off("connect", handleConnect);
+    socketService.off("disconnect", handleDisconnect);
     socketService.disconnect();
   };
 
-  // Load initial posts
-  useEffect(() => {
-    loadPosts();
-  }, []);
-
-  const loadPosts = async () => {
-    try {
-      await dispatch(fetchPosts());
-    } catch (error) {
-      console.log('Error loading posts:', error);
-    }
-  };
+  useEffect(() => { dispatch(fetchPosts()); }, []);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -140,102 +93,116 @@ export default function HomeScreen() {
     setRefreshing(false);
   }, [dispatch]);
 
-  const scrollToTop = useCallback(() => {
-    flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
-  }, []);
-
   const renderItem = useCallback(
     ({ item, index }: { item: Post; index: number }) => (
-      <View style={[styles.postContainer, index === 0 && styles.firstPost]}>
+      <View style={[styles.postWrap, index === 0 && { marginTop: 4 }]}>
         <PostCard post={item} />
       </View>
     ),
     []
   );
 
-  // Header component (stays at top, doesn't scroll)
-  const HeaderComponent = () => (
+  const keyExtractor = useCallback((item: Post) => item._id, []);
+
+  // Header shrink on scroll
+  const titleScale = scrollY.interpolate({
+    inputRange: [0, 60], outputRange: [1, 0.88], extrapolate: "clamp",
+  });
+  const titleTranslate = scrollY.interpolate({
+    inputRange: [0, 60], outputRange: [0, -4], extrapolate: "clamp",
+  });
+
+  const Header = () => (
     <View style={styles.header}>
-      <View style={styles.headerLeft}>
+      <Animated.View style={{ transform: [{ scale: titleScale }, { translateY: titleTranslate }] }}>
         <Text style={styles.headerTitle}>EchoVoice</Text>
-        <View style={styles.statusBadge}>
-          <View style={[styles.statusDot, isConnected && styles.statusDotActive]} />
+        <View style={styles.statusRow}>
+          <View style={[styles.statusDot, isConnected && styles.statusDotLive]} />
           <Text style={styles.statusText}>
-            {isConnected ? '● Live' : '○ Connecting...'} • {posts.length} {posts.length === 1 ? 'post' : 'posts'}
+            {isConnected ? "Live" : "Connecting"}
+          </Text>
+          <Text style={styles.statusSep}>·</Text>
+          <Text style={styles.statusText}>
+            {posts.length} {posts.length === 1 ? "post" : "posts"}
           </Text>
         </View>
+      </Animated.View>
+
+      <View style={styles.headerIcons}>
+        <TouchableOpacity
+          style={styles.iconBtn}
+          onPress={() => router.push("/notifications")}
+          activeOpacity={0.75}
+        >
+          <Ionicons name="heart-outline" size={22} color="#6C63FF" />
+          {unreadCount > 0 && (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>{unreadCount > 9 ? "9+" : unreadCount}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.iconBtn}
+          onPress={() => router.push("/chatlist")}
+          activeOpacity={0.75}
+        >
+          <MaterialCommunityIcons name="chat-processing-outline" size={23} color="#6C63FF" />
+        </TouchableOpacity>
       </View>
-      
-      <TouchableOpacity 
-        onPress={() => router.push("/chatlist")}
-        style={styles.globeBadge}
-        activeOpacity={0.7}
-      >
-        <MaterialCommunityIcons name="chat-processing-outline" size={24} color="#6C63FF" />
-      </TouchableOpacity>
     </View>
   );
 
-  // Empty state component
-  const EmptyComponent = () => {
-    if (loading) {
-      return (
-        <View style={styles.centerBox}>
-          <ActivityIndicator size="large" color="#6C63FF" />
-          <Text style={styles.loadingText}>Loading your feed...</Text>
-        </View>
-      );
-    }
-
+  const Empty = () => {
+    if (loading) return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" color="#6C63FF" />
+        <Text style={styles.loadingText}>Loading your feed…</Text>
+      </View>
+    );
     return (
-      <View style={styles.centerBox}>
-        <Ionicons name="newspaper-outline" size={64} color="#C4C4D4" />
-        <Text style={styles.emptyTitle}>No posts yet</Text>
-        <Text style={styles.emptySub}>
-          Be the first to share something anonymous
-        </Text>
-        <TouchableOpacity 
-          style={styles.emptyButton}
-          onPress={() => router.push("/add_post")}
-        >
-          <Text style={styles.emptyButtonText}>Create First Post</Text>
+      <View style={styles.center}>
+        <View style={styles.emptyIconWrap}>
+          <Ionicons name="newspaper-outline" size={40} color="#6C63FF" />
+        </View>
+        <Text style={styles.emptyTitle}>Nothing here yet</Text>
+        <Text style={styles.emptySub}>Be the first to share something anonymous</Text>
+        <TouchableOpacity style={styles.emptyBtn} onPress={() => router.push("/add_post")}>
+          <Text style={styles.emptyBtnText}>Create Post</Text>
         </TouchableOpacity>
       </View>
     );
   };
 
-  // Footer component
-  const FooterComponent = () => {
+  const Footer = () => {
     if (!posts.length) return null;
-    
     return (
       <View style={styles.footer}>
-        <Ionicons name="checkmark-circle-outline" size={16} color="#BBBBCC" />
-        <Text style={styles.footerText}>You're all caught up ✨</Text>
+        <View style={styles.footerLine} />
+        <Text style={styles.footerText}>You're all caught up</Text>
+        <View style={styles.footerLine} />
       </View>
     );
   };
 
-  // Key extractor
-  const keyExtractor = useCallback((item: Post) => item._id, []);
-
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top']}>
-      <StatusBar barStyle="dark-content" backgroundColor="#F5F5FA" />
-
-      {/* Fixed Header - outside FlatList */}
-      <HeaderComponent />
-
-      {/* Scrollable Content */}
-      <FlatList
+    <SafeAreaView style={styles.safe} edges={["top"]}>
+      <StatusBar barStyle="dark-content" backgroundColor="#F7F7FC" />
+      <Header />
+      <Animated.FlatList
         ref={flatListRef}
         data={posts}
         keyExtractor={keyExtractor}
         renderItem={renderItem}
-        ListEmptyComponent={EmptyComponent}
-        ListFooterComponent={FooterComponent}
+        ListEmptyComponent={Empty}
+        ListFooterComponent={Footer}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
+        onScroll={Animated.event(
+          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+          { useNativeDriver: true }
+        )}
+        scrollEventThrottle={16}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -245,11 +212,10 @@ export default function HomeScreen() {
             progressBackgroundColor="#FFFFFF"
           />
         }
-        removeClippedSubviews={Platform.OS === 'ios' ? false : true}
+        removeClippedSubviews={Platform.OS !== "ios"}
         maxToRenderPerBatch={MAX_TO_RENDER_PER_BATCH}
         windowSize={WINDOW_SIZE}
         initialNumToRender={INITIAL_NUM_TO_RENDER}
-        onEndReachedThreshold={0.5}
         keyboardShouldPersistTaps="handled"
       />
     </SafeAreaView>
@@ -257,131 +223,88 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: "#F5F5FA",
-  },
+  safe: { flex: 1, backgroundColor: "#F7F7FC" },
+
+  // Header
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 20,
-    paddingVertical: 16,
-    backgroundColor: "#F5F5FA",
+    paddingTop: 12,
+    paddingBottom: 14,
+    backgroundColor: "#F7F7FC",
     borderBottomWidth: 1,
-    borderBottomColor: "#EAEAF0",
-    zIndex: 10,
-  },
-  headerLeft: {
-    flex: 1,
+    borderBottomColor: "#EBEBF5",
   },
   headerTitle: {
-    fontSize: 28,
+    fontSize: 30,
     fontWeight: "800",
     color: "#6C63FF",
-    letterSpacing: -0.5,
-    marginBottom: 6,
+    letterSpacing: -0.8,
+    marginBottom: 4,
   },
-  statusBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
+  statusRow: { flexDirection: "row", alignItems: "center", gap: 5 },
   statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#C4C4D4",
+    width: 7, height: 7, borderRadius: 4,
+    backgroundColor: "#D1D5DB",
   },
-  statusDotActive: {
-    backgroundColor: "#4CAF50",
-    shadowColor: "#4CAF50",
+  statusDotLive: {
+    backgroundColor: "#10B981",
+    shadowColor: "#10B981",
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 3,
+    shadowOpacity: 0.6,
+    shadowRadius: 4,
     elevation: 2,
   },
-  statusText: {
-    fontSize: 12,
-    color: "#9999AA",
-    fontWeight: "500",
-  },
-  globeBadge: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+  statusText: { fontSize: 12, color: "#9CA3AF", fontWeight: "500" },
+  statusSep: { fontSize: 12, color: "#D1D5DB" },
+
+  headerIcons: { flexDirection: "row", gap: 10 },
+  iconBtn: {
+    width: 44, height: 44, borderRadius: 22,
     backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "#EAEAF0",
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 1, borderColor: "#EBEBF5",
     shadowColor: "#6C63FF",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
+    shadowOpacity: 0.07,
     shadowRadius: 8,
     elevation: 2,
+    position: "relative",
   },
-  listContent: {
-    paddingTop: 8,
-    paddingBottom: 80,
-    flexGrow: 1,
+  badge: {
+    position: "absolute", top: -3, right: -3,
+    backgroundColor: "#F43F5E",
+    borderRadius: 9, minWidth: 18, height: 18,
+    alignItems: "center", justifyContent: "center",
+    paddingHorizontal: 4,
+    borderWidth: 2, borderColor: "#F7F7FC",
   },
-  postContainer: {
-    marginHorizontal: 16,
-    marginBottom: 12,
+  badgeText: { color: "#FFFFFF", fontSize: 10, fontWeight: "800" },
+
+  // List
+  listContent: { paddingHorizontal: 14, paddingTop: 8, paddingBottom: 90, flexGrow: 1 },
+  postWrap: { marginBottom: 12 },
+
+  // Empty
+  center: { alignItems: "center", justifyContent: "center", paddingTop: 80, paddingHorizontal: 32, flex: 1 },
+  emptyIconWrap: {
+    width: 80, height: 80, borderRadius: 24,
+    backgroundColor: "#EEF2FF",
+    alignItems: "center", justifyContent: "center", marginBottom: 16,
   },
-  firstPost: {
-    marginTop: 8,
+  emptyTitle: { fontSize: 19, fontWeight: "700", color: "#111827", marginBottom: 6 },
+  emptySub: { fontSize: 14, color: "#9CA3AF", textAlign: "center", lineHeight: 20, marginBottom: 24 },
+  emptyBtn: {
+    backgroundColor: "#6C63FF", paddingHorizontal: 28,
+    paddingVertical: 13, borderRadius: 22,
   },
-  centerBox: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingTop: 100,
-    paddingHorizontal: 32,
-    flex: 1,
-  },
-  emptyTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#1A1A2E",
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  emptySub: {
-    fontSize: 14,
-    color: "#9999AA",
-    textAlign: "center",
-    lineHeight: 20,
-    marginBottom: 20,
-  },
-  emptyButton: {
-    backgroundColor: "#6C63FF",
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 12,
-    marginTop: 16,
-  },
-  emptyButtonText: {
-    color: "#FFFFFF",
-    fontWeight: "600",
-    fontSize: 14,
-  },
-  loadingText: {
-    marginTop: 16,
-    color: "#9999AA",
-    fontSize: 14,
-    fontWeight: "500",
-  },
-  footer: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    paddingVertical: 24,
-  },
-  footerText: {
-    fontSize: 13,
-    color: "#BBBBCC",
-    fontWeight: "500",
-  },
+  emptyBtnText: { color: "#FFFFFF", fontWeight: "700", fontSize: 14 },
+  loadingText: { marginTop: 14, color: "#9CA3AF", fontSize: 14, fontWeight: "500" },
+
+  // Footer
+  footer: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 28, paddingHorizontal: 24 },
+  footerLine: { flex: 1, height: 1, backgroundColor: "#EBEBF5" },
+  footerText: { fontSize: 12, color: "#C4C4D4", fontWeight: "600" },
 });

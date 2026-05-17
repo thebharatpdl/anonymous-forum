@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -10,15 +10,14 @@ import {
   RefreshControl,
   TextInput,
   Alert,
+  Animated,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter, useFocusEffect } from "expo-router";
+import { useRouter } from "expo-router";
 import { getCurrentUser, getUserId } from "../services/authService";
 
 const API_URL = "http://192.168.1.69:5000/api";
-
-// ─── Types ────────────────────────────────────────────────────────────────────
 
 type UserItem = {
   id: string;
@@ -26,17 +25,23 @@ type UserItem = {
   avatarColor: string;
 };
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
 function getInitials(name?: string): string {
   if (!name) return "A";
   return name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase();
 }
 
-const AVATAR_COLORS = ["#EEF2FF", "#FEF3C7", "#DCFCE7", "#FCE7F3", "#E0F2FE"];
-const AVATAR_TEXT_COLORS = ["#6C63FF", "#D97706", "#16A34A", "#DB2777", "#0284C7"];
+const AVATAR_GRADIENTS = [
+  { bg: "#EEF2FF", text: "#6C63FF", border: "#C7D2FE" },
+  { bg: "#FEF3C7", text: "#D97706", border: "#FDE68A" },
+  { bg: "#DCFCE7", text: "#16A34A", border: "#BBF7D0" },
+  { bg: "#FCE7F3", text: "#DB2777", border: "#FBCFE8" },
+  { bg: "#E0F2FE", text: "#0284C7", border: "#BAE6FD" },
+  { bg: "#F3E8FF", text: "#9333EA", border: "#E9D5FF" },
+  { bg: "#FFF7ED", text: "#EA580C", border: "#FED7AA" },
+  { bg: "#F0FDF4", text: "#15803D", border: "#BBF7D0" },
+];
 
-// ─── User Row Component ────────────────────────────────────────────────────────
+// ─── Animated User Row ────────────────────────────────────────────────────────
 
 function UserRow({
   item,
@@ -49,39 +54,64 @@ function UserRow({
   onPress: () => void;
   starting: boolean;
 }) {
-  const colorIdx = index % AVATAR_COLORS.length;
-  
+  const colors = AVATAR_GRADIENTS[index % AVATAR_GRADIENTS.length];
+  const fadeAnim = React.useRef(new Animated.Value(0)).current;
+  const slideAnim = React.useRef(new Animated.Value(16)).current;
+
+  React.useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1, duration: 280,
+        delay: index * 40, useNativeDriver: true,
+      }),
+      Animated.spring(slideAnim, {
+        toValue: 0, tension: 80, friction: 12,
+        delay: index * 40, useNativeDriver: true,
+      }),
+    ]).start();
+  }, []);
+
   return (
-    <Pressable
-      style={({ pressed }) => [styles.userRow, pressed && styles.userRowPressed]}
-      onPress={onPress}
-      disabled={starting}
-    >
-      <View style={[styles.avatar, { backgroundColor: AVATAR_COLORS[colorIdx] }]}>
-        <Text style={[styles.avatarText, { color: AVATAR_TEXT_COLORS[colorIdx] }]}>
-          {getInitials(item.anonymousName)}
-        </Text>
-      </View>
-      
-      <View style={styles.userInfo}>
-        <Text style={styles.userName} numberOfLines={1}>
-          {item.anonymousName}
-        </Text>
-        <Text style={styles.userStatus}>Tap to start chatting</Text>
-      </View>
-      
-      {starting ? (
-        <ActivityIndicator size="small" color="#6C63FF" />
-      ) : (
-        <Ionicons name="chatbubble-outline" size={20} color="#6C63FF" />
-      )}
-    </Pressable>
+    <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
+      <Pressable
+        style={({ pressed }) => [styles.userRow, pressed && styles.userRowPressed]}
+        onPress={onPress}
+        disabled={starting}
+      >
+        {/* Avatar */}
+        <View style={[styles.avatar, { backgroundColor: colors.bg, borderColor: colors.border }]}>
+          <Text style={[styles.avatarText, { color: colors.text }]}>
+            {getInitials(item.anonymousName)}
+          </Text>
+        </View>
+
+        {/* Info */}
+        <View style={styles.userInfo}>
+          <Text style={styles.userName} numberOfLines={1}>
+            {item.anonymousName}
+          </Text>
+          <View style={styles.statusRow}>
+            <View style={styles.onlineDot} />
+            <Text style={styles.userStatus}>Anonymous · Tap to chat</Text>
+          </View>
+        </View>
+
+        {/* Action */}
+        {starting ? (
+          <ActivityIndicator size="small" color="#6C63FF" />
+        ) : (
+          <View style={[styles.chatIconBtn, { backgroundColor: colors.bg, borderColor: colors.border }]}>
+            <Ionicons name="chatbubble-ellipses" size={16} color={colors.text} />
+          </View>
+        )}
+      </Pressable>
+    </Animated.View>
   );
 }
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
-export default function ChatsScreen() {
+export default function ChatListScreen() {
   const router = useRouter();
   const [users, setUsers] = useState<UserItem[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<UserItem[]>([]);
@@ -89,15 +119,15 @@ export default function ChatsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [startingChat, setStartingChat] = useState<string | null>(null);
-  const [myUserId, setMyUserId] = useState<string>("");
-  const [myUserName, setMyUserName] = useState<string>("");
+  const [myUserId, setMyUserId] = useState("");
+  const [myUserName, setMyUserName] = useState("");
+  const headerAnim = React.useRef(new Animated.Value(0)).current;
 
-  // Load users when screen mounts
   useEffect(() => {
     loadUsers();
+    Animated.timing(headerAnim, { toValue: 1, duration: 400, useNativeDriver: true }).start();
   }, []);
 
-  // Filter users by search
   useEffect(() => {
     if (!search.trim()) {
       setFilteredUsers(users);
@@ -112,23 +142,17 @@ export default function ChatsScreen() {
 
   async function loadUsers(isRefresh = false) {
     if (isRefresh) setRefreshing(true);
-    
-    // Get current user ID
     const uid = await getUserId();
     if (uid) setMyUserId(uid);
-    
     const me = await getCurrentUser();
     if (me) setMyUserName(me.anonymousName);
-    
     try {
       const res = await fetch(`${API_URL}/auth/users`);
       const data = await res.json();
-      // Exclude current user from list
-      const otherUsers = data.filter((u: UserItem) => u.id !== uid);
-      setUsers(otherUsers);
-      setFilteredUsers(otherUsers);
-    } catch (err) {
-      console.log("Error loading users:", err);
+      const others = data.filter((u: UserItem) => u.id !== uid);
+      setUsers(others);
+      setFilteredUsers(others);
+    } catch {
       Alert.alert("Error", "Failed to load users");
     } finally {
       setLoading(false);
@@ -136,15 +160,9 @@ export default function ChatsScreen() {
     }
   }
 
-  // Create chat room and navigate
   const startChat = async (otherUser: UserItem) => {
-    if (!myUserId) {
-      Alert.alert("Error", "Please login first");
-      return;
-    }
-    
+    if (!myUserId) { Alert.alert("Error", "Please login first"); return; }
     setStartingChat(otherUser.id);
-    
     try {
       const res = await fetch(`${API_URL}/chat/room`, {
         method: "POST",
@@ -156,10 +174,8 @@ export default function ChatsScreen() {
           userName2: otherUser.anonymousName,
         }),
       });
-      
       const room = await res.json();
-      if (!room.roomId) throw new Error("No roomId returned");
-      
+      if (!room.roomId) throw new Error("No roomId");
       router.push({
         pathname: "/chat",
         params: {
@@ -168,72 +184,75 @@ export default function ChatsScreen() {
           otherUserName: otherUser.anonymousName,
         },
       });
-    } catch (err) {
-      console.log("Error starting chat:", err);
+    } catch {
       Alert.alert("Error", "Could not start chat. Please try again.");
     } finally {
       setStartingChat(null);
     }
   };
 
-  // Render empty state
-  const renderEmptyState = () => (
-    <View style={styles.emptyState}>
-      <View style={styles.emptyIcon}>
-        <Ionicons name="people-outline" size={48} color="#C4C4D4" />
-      </View>
-      <Text style={styles.emptyTitle}>
-        {search ? "No users found" : "No other users yet"}
-      </Text>
-      <Text style={styles.emptySub}>
-        {search 
-          ? "Try a different search term" 
-          : "Check back later for more anonymous users"}
-      </Text>
-    </View>
-  );
-
   if (loading) {
     return (
       <SafeAreaView style={styles.loaderContainer}>
         <ActivityIndicator size="large" color="#6C63FF" />
+        <Text style={styles.loaderText}>Finding people…</Text>
       </SafeAreaView>
     );
   }
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
-      {/* Header - Fixed at top with better styling */}
-      <View style={styles.header}>
-        <TouchableOpacity 
-          onPress={() => router.back()} 
-          style={styles.headerBack}
+
+      {/* ── Header ── */}
+      <Animated.View style={[styles.header, { opacity: headerAnim }]}>
+        <TouchableOpacity
+          style={styles.backBtn}
+          onPress={() => router.back()}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <Ionicons name="arrow-back" size={24} color="#1C1E21" />
+          <Ionicons name="arrow-back" size={22} color="#1C1E21" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Chats</Text>
-        <View style={styles.headerPlaceholder} />
-      </View>
 
-      {/* Search Bar */}
-      <View style={styles.searchBar}>
-        <Ionicons name="search-outline" size={18} color="#9CA3AF" />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search people..."
-          placeholderTextColor="#9CA3AF"
-          value={search}
-          onChangeText={setSearch}
-        />
-        {search.length > 0 && (
-          <TouchableOpacity onPress={() => setSearch("")}>
-            <Ionicons name="close-circle" size={18} color="#9CA3AF" />
-          </TouchableOpacity>
-        )}
-      </View>
+        <View style={styles.headerCenter}>
+          <Text style={styles.headerTitle}>People</Text>
+          <View style={styles.headerCountPill}>
+            <Text style={styles.headerCountText}>{users.length}</Text>
+          </View>
+        </View>
 
-      {/* Users List */}
+        <View style={{ width: 40 }} />
+      </Animated.View>
+
+      {/* ── Search ── */}
+      <Animated.View style={[styles.searchWrap, { opacity: headerAnim }]}>
+        <View style={styles.searchBar}>
+          <Ionicons name="search-outline" size={18} color="#9CA3AF" />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search anonymous users…"
+            placeholderTextColor="#C4C4D4"
+            value={search}
+            onChangeText={setSearch}
+          />
+          {search.length > 0 && (
+            <TouchableOpacity onPress={() => setSearch("")} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Ionicons name="close-circle" size={18} color="#C4C4D4" />
+            </TouchableOpacity>
+          )}
+        </View>
+      </Animated.View>
+
+      {/* ── Section Label ── */}
+      {filteredUsers.length > 0 && (
+        <View style={styles.sectionLabel}>
+          <Text style={styles.sectionLabelText}>
+            {search ? `${filteredUsers.length} result${filteredUsers.length !== 1 ? "s" : ""}` : "All Users"}
+          </Text>
+          <View style={styles.sectionLine} />
+        </View>
+      )}
+
+      {/* ── List ── */}
       <FlatList
         data={filteredUsers}
         keyExtractor={(item) => item.id}
@@ -253,8 +272,24 @@ export default function ChatsScreen() {
           />
         }
         ItemSeparatorComponent={() => <View style={styles.separator} />}
-        ListEmptyComponent={renderEmptyState}
-        contentContainerStyle={filteredUsers.length === 0 ? styles.emptyList : styles.listContent}
+        ListEmptyComponent={
+          <View style={styles.emptyState}>
+            <View style={styles.emptyIconWrap}>
+              <Ionicons name="people-outline" size={40} color="#6C63FF" />
+            </View>
+            <Text style={styles.emptyTitle}>
+              {search ? "No users found" : "No one here yet"}
+            </Text>
+            <Text style={styles.emptySub}>
+              {search
+                ? "Try searching with a different name"
+                : "Check back later for more anonymous users"}
+            </Text>
+          </View>
+        }
+        contentContainerStyle={
+          filteredUsers.length === 0 ? styles.emptyListContent : styles.listContent
+        }
         showsVerticalScrollIndicator={false}
       />
     </SafeAreaView>
@@ -264,142 +299,105 @@ export default function ChatsScreen() {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
-  },
+  container: { flex: 1, backgroundColor: "#F7F7FC" },
   loaderContainer: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#FFFFFF",
+    flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#F7F7FC", gap: 12,
   },
-  
-  // Header - Fixed at top
+  loaderText: { fontSize: 14, color: "#9CA3AF", fontWeight: "500" },
+
+  // Header
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingVertical: 14,
-    backgroundColor: "#FFFFFF",
-    borderBottomWidth: 1,
-    borderBottomColor: "#E8ECEF",
-  },
-  headerBack: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#1C1E21",
-  },
-  headerPlaceholder: {
-    width: 40,
-  },
-  
-  // Search Bar
-  searchBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    margin: 16,
-    marginTop: 12,
-    marginBottom: 8,
-    backgroundColor: "#F2F3F7",
-    borderRadius: 14,
-    paddingHorizontal: 16,
     paddingVertical: 12,
+    backgroundColor: "#F7F7FC",
   },
-  searchInput: {
-    flex: 1,
-    fontSize: 16,
-    color: "#1C1E21",
-    padding: 0,
+  backBtn: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 1, borderColor: "#EBEBF5",
+    shadowColor: "#6C63FF",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06, shadowRadius: 8, elevation: 2,
   },
-  
+  headerCenter: { flexDirection: "row", alignItems: "center", gap: 8 },
+  headerTitle: { fontSize: 20, fontWeight: "800", color: "#111827" },
+  headerCountPill: {
+    backgroundColor: "#EEF2FF", borderRadius: 10,
+    paddingHorizontal: 8, paddingVertical: 2,
+    borderWidth: 1, borderColor: "#C7D2FE",
+  },
+  headerCountText: { fontSize: 12, fontWeight: "700", color: "#6C63FF" },
+
+  // Search
+  searchWrap: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 12 },
+  searchBar: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16, paddingHorizontal: 14, paddingVertical: 12,
+    borderWidth: 1, borderColor: "#EBEBF5",
+    shadowColor: "#6C63FF",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05, shadowRadius: 8, elevation: 1,
+  },
+  searchInput: { flex: 1, fontSize: 15, color: "#111827", padding: 0 },
+
+  // Section Label
+  sectionLabel: {
+    flexDirection: "row", alignItems: "center",
+    paddingHorizontal: 16, paddingBottom: 6, gap: 10,
+  },
+  sectionLabelText: { fontSize: 12, fontWeight: "700", color: "#9CA3AF", letterSpacing: 0.5 },
+  sectionLine: { flex: 1, height: 1, backgroundColor: "#EBEBF5" },
+
   // List
-  listContent: {
-    paddingBottom: 32,
-  },
-  emptyList: {
-    flex: 1,
-  },
-  separator: {
-    height: 0.5,
-    backgroundColor: "#E8ECEF",
-    marginLeft: 80,
-  },
-  
+  listContent: { paddingBottom: 40, paddingHorizontal: 12 },
+  emptyListContent: { flex: 1 },
+  separator: { height: 6 },
+
   // User Row
   userRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    flexDirection: "row", alignItems: "center", gap: 12,
     backgroundColor: "#FFFFFF",
-    gap: 14,
+    borderRadius: 18, padding: 14,
+    borderWidth: 1, borderColor: "#F0F0F8",
+    shadowColor: "#6C63FF",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04, shadowRadius: 8, elevation: 1,
   },
-  userRowPressed: {
-    backgroundColor: "#F8F9FC",
-  },
+  userRowPressed: { opacity: 0.95, transform: [{ scale: 0.99 }] },
   avatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
+    width: 52, height: 52, borderRadius: 26,
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 1.5, flexShrink: 0,
   },
-  avatarText: {
-    fontSize: 18,
-    fontWeight: "700",
+  avatarText: { fontSize: 18, fontWeight: "800" },
+  userInfo: { flex: 1, gap: 3 },
+  userName: { fontSize: 15, fontWeight: "700", color: "#111827" },
+  statusRow: { flexDirection: "row", alignItems: "center", gap: 5 },
+  onlineDot: {
+    width: 6, height: 6, borderRadius: 3, backgroundColor: "#10B981",
   },
-  userInfo: {
-    flex: 1,
-    gap: 4,
+  userStatus: { fontSize: 12, color: "#9CA3AF", fontWeight: "500" },
+  chatIconBtn: {
+    width: 36, height: 36, borderRadius: 18,
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 1.5,
   },
-  userName: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#1C1E21",
-  },
-  userStatus: {
-    fontSize: 13,
-    color: "#9CA3AF",
-  },
-  
-  // Empty State
+
+  // Empty
   emptyState: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 48,
-    paddingTop: 100,
+    flex: 1, alignItems: "center", justifyContent: "center",
+    paddingHorizontal: 48, paddingTop: 80,
   },
-  emptyIcon: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+  emptyIconWrap: {
+    width: 80, height: 80, borderRadius: 24,
     backgroundColor: "#EEF2FF",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 20,
+    alignItems: "center", justifyContent: "center", marginBottom: 16,
   },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#1C1E21",
-    marginBottom: 8,
-  },
-  emptySub: {
-    fontSize: 14,
-    color: "#65676B",
-    textAlign: "center",
-    lineHeight: 20,
-  },
+  emptyTitle: { fontSize: 18, fontWeight: "700", color: "#111827", marginBottom: 6 },
+  emptySub: { fontSize: 13, color: "#9CA3AF", textAlign: "center", lineHeight: 19 },
 });

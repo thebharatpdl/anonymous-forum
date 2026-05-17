@@ -1,136 +1,144 @@
 import React, { useRef, useEffect, useState } from 'react';
 import {
   StyleSheet,
-  SafeAreaView,
-  ScrollView,
   View,
   TouchableOpacity,
   Text,
-  Animated,
   Dimensions,
   StatusBar,
   ActivityIndicator,
+  Share,
+  Animated,
+  Platform,
+  ScrollView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useAppSelector } from '../../src/redux/hooks';
 import { useRouter } from 'expo-router';
-import { getCurrentUser, User } from '../../services/authService';
-import { logout } from '../../services/authService';
+import { getCurrentUser, User, logout } from '../../services/authService';
+import EditProfileModal from '../../components/EditProfileModal';
 
 const { width } = Dimensions.get('window');
+const GRID_SIZE = (width - 3) / 3;
 
-// ─── Stat Tile Component ─────────────────────────────────────────────────────
-function StatTile({
-  icon,
-  value,
-  label,
-  delay,
-  accent = '#6366F1',
-}: {
-  icon: string;
-  value: string;
-  label: string;
-  delay: number;
-  accent?: string;
-}) {
-  const fade = useRef(new Animated.Value(0)).current;
-  const slide = useRef(new Animated.Value(12)).current;
-  
+// ─── Avatar color from name ───────────────────────────────────────────────────
+function getGradient(name: string): [string, string, string] {
+  const palettes: [string, string, string][] = [
+    ['#6C63FF', '#8B5CF6', '#A78BFA'],
+    ['#F43F5E', '#E11D48', '#FB7185'],
+    ['#10B981', '#059669', '#34D399'],
+    ['#F59E0B', '#D97706', '#FCD34D'],
+    ['#3B82F6', '#2563EB', '#60A5FA'],
+    ['#EC4899', '#DB2777', '#F9A8D4'],
+    ['#14B8A6', '#0D9488', '#5EEAD4'],
+    ['#8B5CF6', '#7C3AED', '#C4B5FD'],
+  ];
+  const idx = (name.charCodeAt(0) + name.charCodeAt(1 % name.length)) % palettes.length;
+  return palettes[idx];
+}
+
+// ─── Stat Item ────────────────────────────────────────────────────────────────
+function StatItem({ value, label, onPress }: { value: number; label: string; onPress?: () => void }) {
+  const scale = useRef(new Animated.Value(0.8)).current;
+  const opacity = useRef(new Animated.Value(0)).current;
+
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(fade, { toValue: 1, duration: 400, delay, useNativeDriver: true }),
-      Animated.spring(slide, { toValue: 0, tension: 70, friction: 10, useNativeDriver: true }),
+      Animated.spring(scale, { toValue: 1, tension: 80, friction: 8, useNativeDriver: true }),
+      Animated.timing(opacity, { toValue: 1, duration: 400, useNativeDriver: true }),
     ]).start();
   }, []);
-  
+
   return (
-    <Animated.View style={[styles.statTile, { opacity: fade, transform: [{ translateY: slide }] }]}>
-      <View style={[styles.statTileIconWrap, { borderColor: accent + '40', backgroundColor: accent + '10' }]}>
-        <Ionicons name={icon as any} size={22} color={accent} />
-      </View>
-      <Text style={[styles.statTileValue, { color: accent }]}>{value}</Text>
-      <Text style={styles.statTileLabel}>{label}</Text>
-    </Animated.View>
+    <TouchableOpacity style={styles.statItem} onPress={onPress} activeOpacity={onPress ? 0.7 : 1}>
+      <Animated.Text style={[styles.statNumber, { opacity, transform: [{ scale }] }]}>
+        {value}
+      </Animated.Text>
+      <Text style={styles.statLabel}>{label}</Text>
+    </TouchableOpacity>
   );
 }
 
-// ─── Recent Post Card ────────────────────────────────────────────────────────
-function RecentPostCard({ post, index }: { post: any; index: number }) {
-  const fade = useRef(new Animated.Value(0)).current;
-  const slide = useRef(new Animated.Value(16)).current;
-  
+// ─── Grid Post Card ───────────────────────────────────────────────────────────
+function GridCard({ post, index, colors }: { post: any; index: number; colors: [string, string, string] }) {
+  const opacity = useRef(new Animated.Value(0)).current;
+  const scale = useRef(new Animated.Value(0.92)).current;
+
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(fade, { toValue: 1, duration: 350, delay: index * 80, useNativeDriver: true }),
-      Animated.spring(slide, { toValue: 0, tension: 60, friction: 10, useNativeDriver: true }),
+      Animated.timing(opacity, { toValue: 1, duration: 300, delay: index * 50, useNativeDriver: true }),
+      Animated.spring(scale, { toValue: 1, tension: 70, friction: 10, delay: index * 50, useNativeDriver: true }),
     ]).start();
   }, []);
-  
+
   return (
-    <Animated.View style={[styles.postCard, { opacity: fade, transform: [{ translateY: slide }] }]}>
-      <View style={styles.postCardHeader}>
-        <Text style={styles.postCardIndex}>#{String(index + 1).padStart(2, '0')}</Text>
-        <Text style={styles.postCardDate}>
-          {new Date(post.createdAt || Date.now()).toLocaleDateString()}
-        </Text>
-      </View>
-      <Text style={styles.postCardContent} numberOfLines={2}>
-        {post.content}
-      </Text>
-      <View style={styles.postCardFooter}>
-        <View style={styles.postCardStat}>
-          <Ionicons name="heart-outline" size={14} color="#F43F5E" />
-          <Text style={styles.postCardStatText}>{post.likes || 0} likes</Text>
+    <Animated.View style={[styles.gridCard, { opacity, transform: [{ scale }] }]}>
+      <LinearGradient
+        colors={[colors[0] + '18', colors[1] + '10']}
+        style={StyleSheet.absoluteFill}
+      />
+      <Text style={styles.gridText} numberOfLines={4}>{post.content}</Text>
+      <View style={styles.gridFooter}>
+        <View style={styles.gridStat}>
+          <Ionicons name="heart" size={11} color={colors[0]} />
+          <Text style={[styles.gridStatText, { color: colors[0] }]}>{post.likes || 0}</Text>
         </View>
+        {(post.comments?.length || 0) > 0 && (
+          <View style={styles.gridStat}>
+            <Ionicons name="chatbubble" size={11} color={colors[1]} />
+            <Text style={[styles.gridStatText, { color: colors[1] }]}>{post.comments.length}</Text>
+          </View>
+        )}
       </View>
     </Animated.View>
   );
 }
 
-// ─── Main Profile Screen ─────────────────────────────────────────────────────
+// ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function ProfileScreen() {
   const router = useRouter();
   const { posts } = useAppSelector((state) => state.posts);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [activeTab, setActiveTab] = useState(0);
 
-  // Get current user from auth
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const avatarScale = useRef(new Animated.Value(0)).current;
+  const headerFade = useRef(new Animated.Value(0)).current;
+
   useEffect(() => {
-    loadUser();
+    getCurrentUser().then((user) => {
+      setCurrentUser(user);
+      setLoading(false);
+      Animated.parallel([
+        Animated.spring(avatarScale, { toValue: 1, tension: 60, friction: 8, useNativeDriver: true }),
+        Animated.timing(headerFade, { toValue: 1, duration: 500, useNativeDriver: true }),
+      ]).start();
+    });
   }, []);
 
-  const loadUser = async () => {
-    const user = await getCurrentUser();
-    setCurrentUser(user);
-    setLoading(false);
-  };
-
-  // Filter posts by current user's anonymous name
   const myPosts = posts.filter((p) => p.username === currentUser?.anonymousName);
   const totalLikes = myPosts.reduce((s, p) => s + (p.likes || 0), 0);
-  const topPost = myPosts.length
-    ? myPosts.reduce((b, p) => ((p.likes || 0) > (b.likes || 0) ? p : b), myPosts[0])
-    : null;
+  const colors = getGradient(currentUser?.anonymousName || 'A');
 
-  // Stats for display
-  const stats = [
-    { label: 'Posts', value: myPosts.length.toString(), icon: 'chatbubble-outline', accent: '#6366F1' },
-    { label: 'Likes', value: totalLikes.toString(), icon: 'heart-outline', accent: '#F43F5E' },
-    { label: 'Top Post', value: topPost ? `${topPost.likes || 0}` : '0', icon: 'trophy-outline', accent: '#F59E0B' },
-  ];
+  // Parallax header
+  const bannerTranslate = scrollY.interpolate({
+    inputRange: [0, 150], outputRange: [0, -50], extrapolate: 'clamp',
+  });
+  const headerBg = scrollY.interpolate({
+    inputRange: [0, 60, 100],
+    outputRange: ['rgba(255,255,255,0)', 'rgba(255,255,255,0.85)', 'rgba(255,255,255,0.98)'],
+    extrapolate: 'clamp',
+  });
+  const headerTitleOpacity = scrollY.interpolate({
+    inputRange: [60, 100], outputRange: [0, 1], extrapolate: 'clamp',
+  });
 
-  // Header animations
-  const headerFade = useRef(new Animated.Value(0)).current;
-  const headerSlide = useRef(new Animated.Value(-20)).current;
-  const bannerScale = useRef(new Animated.Value(0.98)).current;
-
-  useEffect(() => {
-    Animated.parallel([
-      Animated.timing(headerFade, { toValue: 1, duration: 500, useNativeDriver: true }),
-      Animated.spring(headerSlide, { toValue: 0, tension: 55, friction: 9, useNativeDriver: true }),
-      Animated.spring(bannerScale, { toValue: 1, tension: 60, friction: 8, useNativeDriver: true }),
-    ]).start();
-  }, []);
+  const handleShare = () =>
+    Share.share({ message: `I'm ${currentUser?.anonymousName} on EchoVoice — the anonymous social app!` });
 
   const handleLogout = async () => {
     await logout();
@@ -139,586 +147,373 @@ export default function ProfileScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#6366F1" />
-      </SafeAreaView>
+      <View style={styles.loaderWrap}>
+        <ActivityIndicator size="large" color="#6C63FF" />
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <StatusBar barStyle="dark-content" backgroundColor="#F8F9FC" />
+    <View style={styles.root}>
+      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 32 }}>
+      <EditProfileModal
+        visible={editModalVisible}
+        onClose={() => setEditModalVisible(false)}
+        onUpdate={(u) => setCurrentUser(u)}
+      />
 
-        {/* ── TOP NAV ── */}
-        <View style={styles.topNav}>
-          <View style={styles.topNavLeft}>
-            <View style={styles.signalDot} />
-            <Text style={styles.topNavText}>PROFILE</Text>
-          </View>
-          <TouchableOpacity onPress={handleLogout} style={styles.topNavBtn}>
-            <Ionicons name="log-out-outline" size={20} color="#6366F1" />
+      {/* ── Sticky Header ── */}
+      <Animated.View style={[styles.stickyHeader, { backgroundColor: headerBg }]}>
+        <Animated.Text style={[styles.stickyTitle, { opacity: headerTitleOpacity }]}>
+          @{(currentUser?.anonymousName || 'anonymous').toLowerCase()}
+        </Animated.Text>
+        <View style={styles.stickyActions}>
+          <TouchableOpacity style={styles.stickyBtn} onPress={handleShare}>
+            <Ionicons name="share-outline" size={20} color="#374151" />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.stickyBtn} onPress={handleLogout}>
+            <Ionicons name="log-out-outline" size={20} color="#F43F5E" />
           </TouchableOpacity>
         </View>
+      </Animated.View>
 
-        {/* ── HERO SECTION ── */}
-        <Animated.View
-          style={[
-            styles.heroSection,
-            { opacity: headerFade, transform: [{ scale: bannerScale }, { translateY: headerSlide }] },
-          ]}
-        >
+      <Animated.ScrollView
+        showsVerticalScrollIndicator={false}
+        scrollEventThrottle={16}
+        onScroll={Animated.event(
+          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+          { useNativeDriver: false }
+        )}
+        contentContainerStyle={{ paddingBottom: 100 }}
+      >
+        {/* ── Gradient Banner ── */}
+        <Animated.View style={{ transform: [{ translateY: bannerTranslate }] }}>
+          <LinearGradient
+            colors={[colors[0] + 'AA', colors[1] + '66', colors[2] + '22']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.banner}
+          >
+            {/* Decorative blobs */}
+            <View style={[styles.blob, { top: -40, right: -40, width: 160, height: 160, backgroundColor: colors[0] + '25' }]} />
+            <View style={[styles.blob, { top: 20, right: 80, width: 80, height: 80, backgroundColor: colors[2] + '20' }]} />
+            <View style={[styles.blob, { bottom: -30, left: -30, width: 120, height: 120, backgroundColor: colors[1] + '18' }]} />
+          </LinearGradient>
+        </Animated.View>
+
+        {/* ── Profile Card ── */}
+        <Animated.View style={[styles.profileCard, { opacity: headerFade }]}>
+
           {/* Avatar */}
-          <View style={styles.avatarContainer}>
-            <View style={styles.avatarOuter}>
-              <View style={styles.avatarInner}>
-                <Ionicons name="person" size={42} color="#6366F1" />
-              </View>
-            </View>
-            <View style={styles.statusBadge}>
-              <View style={styles.statusDot} />
-            </View>
+          <View style={styles.avatarWrap}>
+            <Animated.View style={{ transform: [{ scale: avatarScale }] }}>
+              <LinearGradient colors={colors} style={styles.avatarRing} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
+                <View style={styles.avatarInner}>
+                  <Text style={[styles.avatarLetter, { color: colors[0] }]}>
+                    {(currentUser?.anonymousName || 'A')[0].toUpperCase()}
+                  </Text>
+                </View>
+              </LinearGradient>
+              <View style={styles.onlineBadge} />
+            </Animated.View>
           </View>
 
-          {/* Identity - SHOWING REAL ANONYMOUS NAME FROM BACKEND */}
-          <View style={styles.identityBlock}>
-            <Text style={styles.identityName}>{currentUser?.anonymousName || 'Anonymous User'}</Text>
-            <Text style={styles.identityId}>ID: {currentUser?.id?.slice(-8) || '------'}</Text>
-            <View style={styles.badgeRow}>
-              <View style={styles.badge}>
-                <Ionicons name="shield-checkmark" size={12} color="#10B981" />
-                <Text style={styles.badgeText}>Anonymous</Text>
-              </View>
-              <View style={[styles.badge, styles.badgeLive]}>
-                <Ionicons name="radio" size={10} color="#6366F1" />
-                <Text style={[styles.badgeText, { color: '#6366F1' }]}>Live</Text>
-              </View>
+          {/* Name */}
+          <Text style={styles.name}>{currentUser?.anonymousName || 'Anonymous'}</Text>
+          <View style={styles.handleRow}>
+            <Ionicons name="at" size={13} color="#9CA3AF" />
+            <Text style={styles.handle}>{(currentUser?.anonymousName || 'anonymous').toLowerCase()}</Text>
+            <View style={[styles.verifiedBadge, { backgroundColor: colors[0] + '15', borderColor: colors[0] + '40' }]}>
+              <Ionicons name="shield-checkmark" size={10} color={colors[0]} />
+              <Text style={[styles.verifiedText, { color: colors[0] }]}></Text>
             </View>
           </View>
 
           {/* Bio */}
-          <View style={styles.bioBox}>
-            <Text style={styles.bioText}>
-              Sharing thoughts and ideas anonymously. Every voice matters in this community.
-            </Text>
+          {currentUser?.bio ? (
+            <Text style={styles.bio}>{currentUser.bio}</Text>
+          ) : (
+            <TouchableOpacity onPress={() => setEditModalVisible(true)}>
+              <Text style={styles.bioEmpty}>+ Add a bio</Text>
+            </TouchableOpacity>
+          )}
+
+          {/* Stats */}
+          <View style={styles.statsRow}>
+            <StatItem value={myPosts.length} label="Posts" />
+            <View style={styles.statDivider} />
+            <StatItem value={totalLikes} label="Likes" />
+            <View style={styles.statDivider} />
+            <StatItem value={0} label="Followers" />
+            <View style={styles.statDivider} />
+            <StatItem value={0} label="Following" />
           </View>
+
+          {/* Buttons */}
+          <View style={styles.btnRow}>
+            <TouchableOpacity
+              style={styles.btnPrimary}
+              onPress={() => setEditModalVisible(true)}
+              activeOpacity={0.85}
+            >
+              <LinearGradient
+                colors={[colors[0], colors[1]]}
+                start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+                style={styles.btnGradient}
+              >
+                <Ionicons name="create-outline" size={16} color="#fff" />
+                <Text style={styles.btnPrimaryText}>Edit Profile</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.btnSecondary, { borderColor: colors[0] + '50' }]}
+              onPress={() => router.push('/chatlist')}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="chatbubbles-outline" size={16} color={colors[0]} />
+              <Text style={[styles.btnSecondaryText, { color: colors[0] }]}>Chats</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.btnIcon, { backgroundColor: colors[0] + '12', borderColor: colors[0] + '30' }]}
+              onPress={handleShare}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="share-social-outline" size={18} color={colors[0]} />
+            </TouchableOpacity>
+          </View>
+
+          {/* ID Badge */}
+           <View style={[styles.idBadge, { backgroundColor: colors[0] + '08' }]}>
+            <Ionicons name="finger-print-outline" size={12} color="#9CA3AF" />
+            <Text style={styles.idText}>ID · {currentUser?.id?.slice(-10).toUpperCase() || '----------'}</Text>
+          </View> 
         </Animated.View>
 
-        {/* ── STATS SECTION ── */}
-        <View style={styles.statsHeader}>
-          <Text style={styles.statsLabel}>Statistics</Text>
-          <View style={styles.statsLine} />
-        </View>
-
-        <View style={styles.statGrid}>
-          {stats.map((stat, index) => (
-            <StatTile
-              key={index}
-              icon={stat.icon}
-              value={stat.value}
-              label={stat.label}
-              delay={100 + index * 80}
-              accent={stat.accent}
-            />
+        {/* ── Tab Bar ── */}
+        <View style={styles.tabBar}>
+          {['Posts'].map((label, i) => (
+            <TouchableOpacity
+              key={label}
+              style={[styles.tab, activeTab === i && { borderBottomColor: colors[0] }]}
+              onPress={() => setActiveTab(i)}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name={i === 0 ? 'apps' : 'heart'}
+                size={18}
+                color={activeTab === i ? colors[0] : '#D1D5DB'}
+              />
+              <Text style={[styles.tabText, activeTab === i && { color: colors[0] }]}>{label}</Text>
+            </TouchableOpacity>
           ))}
         </View>
 
-        {/* ── ACTION BUTTONS ── */}
-        <View style={styles.actionRow}>
-          <TouchableOpacity style={styles.actionBtnOutline} onPress={() => router.push('/')}>
-            <Ionicons name="home-outline" size={18} color="#6366F1" />
-            <Text style={styles.actionBtnOutlineText}>Feed</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.actionBtnSolid} onPress={() => router.push('/add_post')}>
-            <Ionicons name="add" size={18} color="#FFFFFF" />
-            <Text style={styles.actionBtnSolidText}>New Post</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* ── RECENT POSTS ── */}
-        <View style={styles.postsHeader}>
-          <Text style={styles.postsLabel}>Recent Posts</Text>
-          <View style={styles.postsLine} />
-        </View>
-
+        {/* ── Posts Grid ── */}
         {myPosts.length === 0 ? (
           <View style={styles.emptyState}>
-            <Ionicons name="create-outline" size={48} color="#C7D2FE" />
+            <LinearGradient
+              colors={[colors[0] + '20', colors[1] + '10']}
+              style={styles.emptyIconWrap}
+            >
+              <Ionicons name="create-outline" size={40} color={colors[0]} />
+            </LinearGradient>
             <Text style={styles.emptyTitle}>No posts yet</Text>
-            <Text style={styles.emptySubtitle}>Share your first anonymous thought</Text>
-            <TouchableOpacity style={styles.emptyButton} onPress={() => router.push('/add_post')}>
-              <Text style={styles.emptyButtonText}>Create Post</Text>
+            <Text style={styles.emptySub}>Share your first anonymous thought with the world</Text>
+            <TouchableOpacity
+              style={[styles.emptyBtn, { backgroundColor: colors[0] }]}
+              onPress={() => router.push('/add_post')}
+            >
+              <Text style={styles.emptyBtnText}>Create First Post</Text>
             </TouchableOpacity>
           </View>
         ) : (
-          <View style={styles.postsGrid}>
-            {myPosts.slice(0, 4).map((post, i) => (
-              <RecentPostCard key={post._id} post={post} index={i} />
+          <View style={styles.grid}>
+            {myPosts.slice(0, 9).map((post, i) => (
+              <GridCard key={post._id} post={post} index={i} colors={colors} />
             ))}
-            {myPosts.length > 4 && (
-              <TouchableOpacity style={styles.viewAllButton} onPress={() => router.push('/')}>
-                <Text style={styles.viewAllText}>View all posts</Text>
-                <Ionicons name="arrow-forward" size={16} color="#6366F1" />
-              </TouchableOpacity>
-            )}
           </View>
         )}
 
-        {/* ── PRIVACY CARD ── */}
-        <View style={styles.privacyCard}>
-          <View style={styles.privacyIconWrap}>
-            <Ionicons name="shield-checkmark" size={24} color="#10B981" />
-          </View>
-          <View style={styles.privacyBody}>
-            <Text style={styles.privacyTitle}>Your Privacy is Protected</Text>
-            <Text style={styles.privacyText}>
-              Your identity remains completely anonymous. No personal information is ever shared.
-            </Text>
-          </View>
+        {/* ── Privacy Footer ── */}
+        <View style={styles.privacyRow}>
+          <Ionicons name="lock-closed" size={12} color="#10B981" />
+          <Text style={styles.privacyText}>Your identity is 100% anonymous and protected</Text>
         </View>
-
-      </ScrollView>
-    </SafeAreaView>
+      </Animated.ScrollView>
+    </View>
   );
 }
 
-// ─── Styles ──────────────────────────────────────────────────────────────────
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  safe: {
+  root: {
     flex: 1,
-    backgroundColor: '#F8F9FC',
+    backgroundColor: '#FFFFFF',
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 44,
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#F8F9FC',
-  },
+  loaderWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff' },
 
-  // Top nav
-  topNav: {
+  // Sticky Header
+  stickyHeader: {
+    position: 'absolute',
+    top: Platform.OS === 'android' ? StatusBar.currentHeight : 44,
+    left: 0, right: 0, zIndex: 100,
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
   },
-  topNavLeft: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    gap: 8 
-  },
-  signalDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#10B981',
-  },
-  topNavText: {
-    color: '#6B7280',
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 2,
-  },
-  topNavBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+  stickyTitle: { fontSize: 15, fontWeight: '600', color: '#111827' },
+  stickyActions: { flexDirection: 'row', gap: 8 },
+  stickyBtn: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: 'rgba(243,244,246,0.9)',
+    alignItems: 'center', justifyContent: 'center',
   },
 
-  // Hero section
-  heroSection: {
-    marginHorizontal: 16,
-    marginTop: 8,
-    marginBottom: 8,
+  // Banner
+  banner: { height: 140, overflow: 'hidden' },
+  blob: { position: 'absolute', borderRadius: 999 },
+
+  // Profile Card
+  profileCard: {
     backgroundColor: '#FFFFFF',
+    marginHorizontal: 14,
+    marginTop: -30,
     borderRadius: 24,
     padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 4,
+    alignItems: 'center',
+    shadowColor: '#6C63FF',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.1,
+    shadowRadius: 24,
+    elevation: 8,
   },
 
   // Avatar
-  avatarContainer: {
-    alignSelf: 'center',
-    position: 'relative',
-    marginBottom: 16,
-  },
-  avatarOuter: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: '#EEF2FF',
-    alignItems: 'center',
-    justifyContent: 'center',
+  avatarWrap: { marginBottom: 14, position: 'relative' },
+  avatarRing: {
+    width: 94, height: 94, borderRadius: 47,
+    padding: 3, alignItems: 'center', justifyContent: 'center',
   },
   avatarInner: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
+    width: 88, height: 88, borderRadius: 44,
     backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#6366F1',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
+    alignItems: 'center', justifyContent: 'center',
   },
-  statusBadge: {
-    position: 'absolute',
-    bottom: 4,
-    right: 4,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  statusDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+  avatarLetter: { fontSize: 38, fontWeight: '800' },
+  onlineBadge: {
+    position: 'absolute', bottom: 4, right: 4,
+    width: 18, height: 18, borderRadius: 9,
     backgroundColor: '#10B981',
+    borderWidth: 3, borderColor: '#FFFFFF',
   },
 
-  // Identity
-  identityBlock: { 
-    alignItems: 'center', 
-    marginBottom: 12 
+  // Name
+  name: { fontSize: 20, fontWeight: '800', color: '#111827', marginBottom: 4 },
+  handleRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 10 },
+  handle: { fontSize: 13, color: '#9CA3AF', fontWeight: '500' },
+  verifiedBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 3,
+    paddingHorizontal: 7, paddingVertical: 3,
+    borderRadius: 10, borderWidth: 1, marginLeft: 4,
   },
-  identityName: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#1F2937',
-    marginBottom: 4,
-  },
-  identityId: {
-    fontSize: 12,
-    color: '#9CA3AF',
-    fontFamily: 'monospace',
-    marginBottom: 12,
-  },
-  badgeRow: { 
-    flexDirection: 'row', 
-    gap: 8 
-  },
-  badge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: '#F0FDF4',
-    borderWidth: 1,
-    borderColor: '#D1FAE5',
-  },
-  badgeLive: {
-    backgroundColor: '#EEF2FF',
-    borderColor: '#C7D2FE',
-  },
-  badgeText: {
-    color: '#10B981',
-    fontSize: 11,
-    fontWeight: '600',
-  },
+  verifiedText: { fontSize: 10, fontWeight: '700' },
 
   // Bio
-  bioBox: {
+  bio: { fontSize: 13, color: '#4B5563', lineHeight: 19, textAlign: 'center', marginBottom: 14, paddingHorizontal: 8 },
+  bioEmpty: { fontSize: 13, color: '#9CA3AF', fontStyle: 'italic', marginBottom: 14 },
+
+  // Stats
+  statsRow: {
+    flexDirection: 'row', width: '100%',
+    backgroundColor: '#F9FAFB', borderRadius: 16,
+    paddingVertical: 14, marginBottom: 16,
+  },
+  statItem: { flex: 1, alignItems: 'center' },
+  statNumber: { fontSize: 18, fontWeight: '800', color: '#111827', marginBottom: 2 },
+  statLabel: { fontSize: 11, color: '#9CA3AF', fontWeight: '500' },
+  statDivider: { width: 1, backgroundColor: '#E5E7EB', marginVertical: 6 },
+
+  // Buttons
+  btnRow: { flexDirection: 'row', gap: 8, width: '100%', marginBottom: 12 },
+  btnPrimary: { flex: 1.6, borderRadius: 12, overflow: 'hidden' },
+  btnGradient: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, paddingVertical: 12,
+  },
+  btnPrimaryText: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  btnSecondary: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, paddingVertical: 12, borderRadius: 12,
+    borderWidth: 1.5, backgroundColor: '#FAFAFA',
+  },
+  btnSecondaryText: { fontSize: 14, fontWeight: '700' },
+  btnIcon: {
+    width: 46, height: 46, borderRadius: 12,
+    alignItems: 'center', justifyContent: 'center', borderWidth: 1.5,
+  },
+
+  // ID Badge
+  idBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20,
+  },
+  idText: { fontSize: 11, color: '#9CA3AF', fontFamily: 'monospace', fontWeight: '600' },
+
+  // Tab Bar
+  tabBar: {
+    flexDirection: 'row',
+    marginHorizontal: 14, marginTop: 16, marginBottom: 2,
+    borderBottomWidth: 1, borderBottomColor: '#F3F4F6',
+  },
+  tab: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, paddingVertical: 12,
+    borderBottomWidth: 2, borderBottomColor: 'transparent',
+  },
+  tabText: { fontSize: 13, fontWeight: '600', color: '#D1D5DB' },
+
+  // Grid
+  grid: {
+    flexDirection: 'row', flexWrap: 'wrap',
+    paddingHorizontal: 14, paddingTop: 8, gap: 8,
+  },
+  gridCard: {
+    width: (width - 44) / 3,
+    height: (width - 44) / 3,
+    borderRadius: 14,
     backgroundColor: '#F9FAFB',
-    borderRadius: 12,
-    padding: 14,
-  },
-  bioText: {
-    fontSize: 13,
-    color: '#6B7280',
-    lineHeight: 18,
-    textAlign: 'center',
-  },
-
-  // Stats section
-  statsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    marginTop: 24,
-    marginBottom: 12,
-    gap: 10,
-  },
-  statsLabel: {
-    color: '#6B7280',
-    fontSize: 13,
-    fontWeight: '600',
-    letterSpacing: 1,
-  },
-  statsLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: '#E5E7EB',
-  },
-  statGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    paddingHorizontal: 12,
-    gap: 12,
-  },
-  statTile: {
-    width: (width - 48) / 2,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#F0F0F0',
-    padding: 16,
-    alignItems: 'flex-start',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 1,
-  },
-  statTileIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 12,
-  },
-  statTileValue: {
-    fontSize: 24,
-    fontWeight: '800',
-    marginBottom: 4,
-  },
-  statTileLabel: {
-    color: '#9CA3AF',
-    fontSize: 11,
-    fontWeight: '600',
-    letterSpacing: 0.5,
-  },
-
-  // Actions
-  actionRow: {
-    flexDirection: 'row',
-    gap: 12,
-    paddingHorizontal: 16,
-    marginTop: 20,
-  },
-  actionBtnOutline: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: '#6366F1',
-    backgroundColor: '#FFFFFF',
-  },
-  actionBtnOutlineText: {
-    color: '#6366F1',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  actionBtnSolid: {
-    flex: 1.4,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 12,
-    borderRadius: 12,
-    backgroundColor: '#6366F1',
-    shadowColor: '#6366F1',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  actionBtnSolidText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-
-  // Posts section
-  postsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    marginTop: 28,
-    marginBottom: 12,
-    gap: 10,
-  },
-  postsLabel: {
-    color: '#6B7280',
-    fontSize: 13,
-    fontWeight: '600',
-    letterSpacing: 1,
-  },
-  postsLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: '#E5E7EB',
-  },
-  postsGrid: {
-    paddingHorizontal: 16,
-    gap: 12,
-  },
-  postCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#F0F0F0',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 1,
-  },
-  postCardHeader: {
-    flexDirection: 'row',
+    padding: 8,
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  postCardIndex: {
-    color: '#9CA3AF',
-    fontSize: 11,
-    fontWeight: '600',
-    letterSpacing: 1,
-  },
-  postCardDate: {
-    color: '#D1D5DB',
-    fontSize: 10,
-  },
-  postCardContent: {
-    fontSize: 14,
-    color: '#4B5563',
-    lineHeight: 20,
-    marginBottom: 12,
-  },
-  postCardFooter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
-    paddingTop: 10,
-  },
-  postCardStat: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  postCardStatText: {
-    fontSize: 12,
-    color: '#9CA3AF',
-  },
-  viewAllButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 14,
-    marginTop: 4,
-  },
-  viewAllText: {
-    color: '#6366F1',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-
-  // Empty state
-  emptyState: {
-    alignItems: 'center',
-    marginHorizontal: 16,
-    paddingVertical: 48,
+    overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#F0F0F0',
-    borderStyle: 'dashed',
-    borderRadius: 16,
-    backgroundColor: '#FFFFFF',
+    borderColor: '#F3F4F6',
   },
-  emptyTitle: {
-    color: '#4B5563',
-    fontSize: 16,
-    fontWeight: '600',
-    marginTop: 12,
-  },
-  emptySubtitle: {
-    color: '#9CA3AF',
-    fontSize: 13,
-    marginTop: 4,
-    marginBottom: 20,
-  },
-  emptyButton: {
-    paddingHorizontal: 24,
-    paddingVertical: 10,
-    backgroundColor: '#6366F1',
-    borderRadius: 20,
-  },
-  emptyButtonText: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '600',
-  },
+  gridText: { fontSize: 10, color: '#374151', lineHeight: 14, flex: 1 },
+  gridFooter: { flexDirection: 'row', gap: 6, marginTop: 4 },
+  gridStat: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  gridStatText: { fontSize: 10, fontWeight: '700' },
 
-  // Privacy card
-  privacyCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    marginHorizontal: 16,
-    marginTop: 24,
-    marginBottom: 16,
-    padding: 16,
-    backgroundColor: '#F0FDF4',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#D1FAE5',
+  // Empty
+  emptyState: { alignItems: 'center', paddingVertical: 48, paddingHorizontal: 40 },
+  emptyIconWrap: {
+    width: 88, height: 88, borderRadius: 28,
+    alignItems: 'center', justifyContent: 'center', marginBottom: 16,
   },
-  privacyIconWrap: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#D1FAE5',
-    alignItems: 'center',
-    justifyContent: 'center',
+  emptyTitle: { fontSize: 17, fontWeight: '700', color: '#111827', marginBottom: 6 },
+  emptySub: { fontSize: 13, color: '#9CA3AF', textAlign: 'center', lineHeight: 19, marginBottom: 20 },
+  emptyBtn: { paddingHorizontal: 28, paddingVertical: 12, borderRadius: 22 },
+  emptyBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+
+  // Privacy
+  privacyRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, paddingVertical: 20,
   },
-  privacyBody: { 
-    flex: 1 
-  },
-  privacyTitle: {
-    color: '#065F46',
-    fontSize: 13,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  privacyText: {
-    color: '#6B7280',
-    fontSize: 11,
-    lineHeight: 16,
-  },
+  privacyText: { fontSize: 12, color: '#10B981', fontWeight: '500' },
 });

@@ -50,26 +50,19 @@ export default function MessageBubble({
   const bubbleRef = useRef<View>(null);
   const hasReactions = (item.reactions ?? []).length > 0;
 
-  // Debug log
-  console.log(`💬 Message ${item._id} - hasReactions: ${hasReactions}, reactions count: ${item.reactions?.length || 0}`);
-
   const handleLongPress = () => {
-    console.log("🔴 LONG PRESS on message:", item._id);
-    
     Animated.sequence([
       Animated.timing(scale, { toValue: 0.93, duration: 80, useNativeDriver: true }),
       Animated.timing(scale, { toValue: 1, duration: 80, useNativeDriver: true }),
     ]).start();
 
     bubbleRef.current?.measure((_x, _y, _w, _h, _pageX, pageY) => {
-      console.log("📏 Bubble position Y:", pageY);
       onLongPress(item._id ?? "", isMyMessage, pageY);
     });
   };
 
   return (
     <View style={[styles.row, isMyMessage ? styles.rowRight : styles.rowLeft]}>
-      {/* Avatar for other user */}
       {!isMyMessage && (
         <View style={[styles.avatar, { opacity: showName ? 1 : 0 }]}>
           <Text style={styles.avatarText}>
@@ -80,10 +73,8 @@ export default function MessageBubble({
 
       <View style={[styles.bubbleWrapper, isMyMessage ? { alignItems: "flex-end" } : { alignItems: "flex-start" }]}>
         
-        {/* Sender name */}
         {showName && <Text style={styles.senderLabel}>{item.senderName}</Text>}
 
-        {/* Message Bubble */}
         <Animated.View ref={bubbleRef} style={{ transform: [{ scale }] }}>
           <Pressable onLongPress={handleLongPress} delayLongPress={300}>
             <View style={[styles.bubble, isMyMessage ? styles.myBubble : styles.otherBubble]}>
@@ -94,18 +85,13 @@ export default function MessageBubble({
           </Pressable>
         </Animated.View>
 
-        {/* ✅ REACTIONS - Below the message bubble */}
         <ReactionBar
           reactions={item.reactions || []}
           myUserId={myUserId}
-          onReact={(emoji) => {
-            console.log("🎯 ReactionBar onReact called with emoji:", emoji, "for message:", item._id);
-            onReact(item._id ?? "", emoji);
-          }}
+          onReact={(emoji) => onReact(item._id ?? "", emoji)}
           isMyMessage={isMyMessage}
         />
 
-        {/* Timestamp */}
         <View style={styles.meta}>
           <Text style={styles.time}>{formatTime(item.createdAt)}</Text>
           {isMyMessage && (
