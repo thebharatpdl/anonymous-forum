@@ -10,6 +10,9 @@ export default function RootLayout() {
         {/* Welcome screen - first screen */}
         <Stack.Screen name="index" options={{ headerShown: false }} />
         
+        {/* Auth screens (Login/Register) */}
+        <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+        
         {/* Main tabs */}
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         
@@ -18,10 +21,11 @@ export default function RootLayout() {
         <Stack.Screen name="post-detail" options={{ headerShown: false }} />
         
         {/* Chat screens */}
-        <Stack.Screen name="chats" options={{ headerShown: false }} />
         <Stack.Screen name="chat" options={{ headerShown: false }} />
-     
-     <Stack.Screen name="notifications" options={{ headerShown: false }} />
+        <Stack.Screen name="chatlist" options={{ headerShown: false, title: "New Chat" }} />
+        <Stack.Screen name="find-people" options={{ headerShown: false }} />
+
+        <Stack.Screen name="notifications" options={{ headerShown: false }} />
       </Stack>
       <StatusBar style="auto" />
     </Provider>

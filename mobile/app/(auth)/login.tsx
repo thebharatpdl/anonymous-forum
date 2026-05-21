@@ -13,24 +13,16 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { login, register } from '../services/authService';
+import { login } from '../../services/authService';
 
 export default function LoginScreen() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [isLogin, setIsLogin] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
 
-  // Generate fake email for quick login
-  const generateFakeEmail = () => {
-    const random = Math.random().toString(36).substring(2, 8);
-    setEmail(`${random}@example.com`);
-    setPassword('123456');
-  };
-
-  const handleSubmit = async () => {
+  const handleLogin = async () => {
     if (!email || !password) {
       Alert.alert('Error', 'Please fill in all fields');
       return;
@@ -38,14 +30,10 @@ export default function LoginScreen() {
 
     setLoading(true);
     try {
-      if (isLogin) {
-        await login(email, password);
-      } else {
-        await register(email, password);
-      }
+      await login(email, password);
       router.replace('/(tabs)');
     } catch (error: any) {
-      Alert.alert('Error', error.response?.data?.error || 'Something went wrong');
+      Alert.alert('Login Failed', error.response?.data?.error || 'Invalid credentials');
     } finally {
       setLoading(false);
     }
@@ -58,22 +46,9 @@ export default function LoginScreen() {
           <View style={styles.logoContainer}>
             <Ionicons name="chatbubble-ellipses" size={60} color="#6C63FF" />
           </View>
-          <Text style={styles.title}>EchoVoice</Text>
-          <Text style={styles.subtitle}>{isLogin ? 'Welcome back' : 'Create account'}</Text>
+          <Text style={styles.title}>Welcome Back</Text>
+          <Text style={styles.subtitle}>Login to continue</Text>
 
-          {/* Fake Email Button */}
-          <TouchableOpacity style={styles.fakeEmailBtn} onPress={generateFakeEmail}>
-            <Ionicons name="flash-outline" size={16} color="#6C63FF" />
-            <Text style={styles.fakeEmailBtnText}>Use fake email (demo)</Text>
-          </TouchableOpacity>
-
-          <View style={styles.divider}>
-            <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>or</Text>
-            <View style={styles.dividerLine} />
-          </View>
-
-          {/* Email Input */}
           <View style={styles.inputContainer}>
             <Ionicons name="mail-outline" size={20} color="#999" />
             <TextInput
@@ -87,7 +62,6 @@ export default function LoginScreen() {
             />
           </View>
 
-          {/* Password Input */}
           <View style={styles.inputContainer}>
             <Ionicons name="lock-closed-outline" size={20} color="#999" />
             <TextInput
@@ -103,19 +77,13 @@ export default function LoginScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Submit Button */}
-          <TouchableOpacity style={styles.submitButton} onPress={handleSubmit} disabled={loading}>
-            {loading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.submitButtonText}>{isLogin ? 'Login' : 'Sign Up'}</Text>
-            )}
+          <TouchableOpacity style={styles.loginButton} onPress={handleLogin} disabled={loading}>
+            {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.loginButtonText}>Login</Text>}
           </TouchableOpacity>
 
-          {/* Toggle Login/Register */}
-          <TouchableOpacity onPress={() => setIsLogin(!isLogin)} style={styles.toggleButton}>
-            <Text style={styles.toggleText}>
-              {isLogin ? "Don't have an account? Sign Up" : "Already have an account? Login"}
+          <TouchableOpacity onPress={() => router.push('/(auth)/register')} style={styles.registerLink}>
+            <Text style={styles.registerText}>
+              Don't have an account? <Text style={styles.registerLinkText}>Sign Up</Text>
             </Text>
           </TouchableOpacity>
         </View>
@@ -130,16 +98,12 @@ const styles = StyleSheet.create({
   content: { flex: 1, justifyContent: 'center', paddingHorizontal: 24, paddingBottom: 40 },
   logoContainer: { alignItems: 'center', marginBottom: 20 },
   title: { fontSize: 28, fontWeight: '700', color: '#1C1E21', textAlign: 'center', marginBottom: 8 },
-  subtitle: { fontSize: 14, color: '#666', textAlign: 'center', marginBottom: 24 },
-  fakeEmailBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#EEF2FF', paddingVertical: 10, borderRadius: 10, marginBottom: 16 },
-  fakeEmailBtnText: { color: '#6C63FF', fontSize: 13, fontWeight: '500' },
-  divider: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
-  dividerLine: { flex: 1, height: 1, backgroundColor: '#E4E6EB' },
-  dividerText: { marginHorizontal: 10, color: '#999', fontSize: 12 },
+  subtitle: { fontSize: 14, color: '#666', textAlign: 'center', marginBottom: 32 },
   inputContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 12, paddingHorizontal: 16, marginBottom: 12, borderWidth: 1, borderColor: '#E4E6EB' },
   input: { flex: 1, paddingVertical: 14, fontSize: 16, marginLeft: 12 },
-  submitButton: { backgroundColor: '#6C63FF', borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 16 },
-  submitButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  toggleButton: { alignItems: 'center', marginTop: 16 },
-  toggleText: { color: '#6C63FF', fontSize: 14 },
+  loginButton: { backgroundColor: '#6C63FF', borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 16 },
+  loginButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  registerLink: { alignItems: 'center', marginTop: 16 },
+  registerText: { fontSize: 14, color: '#666' },
+  registerLinkText: { color: '#6C63FF', fontWeight: '600' },
 });

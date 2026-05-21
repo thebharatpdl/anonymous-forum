@@ -19,10 +19,12 @@ app.set("io", io);
 const postRoutes = require("./src/routes/postRoutes");
 const chatRoutes = require("./src/routes/chatRoutes");
 const authRoutes = require("./src/routes/authRoutes");
+const notificationRoutes = require("./src/routes/notificationRoutes");
 
 app.use("/api/auth", authRoutes);
 app.use("/api/posts", postRoutes);
 app.use("/api/chat", chatRoutes);
+app.use("/api/notifications", notificationRoutes); // ✅ MOVED OUTSIDE socket handler
 
 io.on("connection", (socket) => {
   console.log("✅ New client connected:", socket.id);
@@ -36,7 +38,7 @@ io.on("connection", (socket) => {
 
   socket.on("join_chat", async ({ roomId, userId }) => {
     if (!roomId || roomId === "undefined") {
-      console.error(`❌ join_chat called with invalid roomId: "${roomId}" by user ${userId}`);
+      console.error(`❌ join_chat invalid roomId: "${roomId}" by ${userId}`);
       return;
     }
     socket.join(roomId);
@@ -60,13 +62,10 @@ io.on("connection", (socket) => {
     socket.to(roomId).emit("user_joined", { userId });
   });
 
+  // ✅ FIXED: Ensures BOTH participants are saved to the room
   socket.on("send_message", async ({ roomId, message, senderId, senderName }) => {
     if (!roomId || roomId === "undefined" || !senderId || !message) {
-      console.error("❌ send_message missing fields:", {
-        roomId,
-        senderId,
-        hasMessage: !!message,
-      });
+      console.error("❌ send_message missing fields:", { roomId, senderId, hasMessage: !!message });
       return;
     }
 
@@ -74,6 +73,7 @@ io.on("connection", (socket) => {
 
     try {
       const ChatRoom = require("./src/models/ChatRoom");
+      const User = require("./src/models/User");
 
       const newMessage = {
         content: message,
@@ -86,95 +86,115 @@ io.on("connection", (socket) => {
 
       socket.join(roomId);
 
-      const updatedRoom = await ChatRoom.findOneAndUpdate(
-        { roomId },
-        {
-          $push: { messages: newMessage },
-          $set: { updatedAt: new Date() },
-          $setOnInsert: {
-            roomId,
-            participants: [{ userId: senderId, userName: senderName || "Anonymous" }],
-            createdAt: new Date(),
-          },
-        },
-        {
-          returnDocument: "after",
-          upsert: true,
-        }
-      );
+      // Find existing room or create new one with BOTH participants
+      let room = await ChatRoom.findOne({ roomId });
 
-      const savedMessage = updatedRoom.messages[updatedRoom.messages.length - 1];
+      if (!room) {
+        // Extract other user ID from roomId (roomId = sorted(userIds).join("-"))
+        const userIds = roomId.split("-");
+        const otherUserId = userIds.find(id => id !== senderId);
+        
+        // Get other user's name
+        let otherUserName = "Anonymous";
+        if (otherUserId) {
+          try {
+            const otherUser = await User.findById(otherUserId);
+            if (otherUser) otherUserName = otherUser.anonymousName;
+          } catch (err) {
+            console.log("Could not fetch other user:", err);
+          }
+        }
+        
+        // Create room with BOTH participants
+        room = new ChatRoom({
+          roomId,
+          participants: [
+            { userId: senderId, userName: senderName || "Anonymous", joinedAt: new Date() },
+            { userId: otherUserId, userName: otherUserName, joinedAt: new Date() },
+          ],
+          messages: [newMessage],
+          updatedAt: new Date(),
+        });
+        await room.save();
+        console.log(`🏠 Created new room with both participants: ${senderName} ↔ ${otherUserName}`);
+      } else {
+        // Add message to existing room
+        room.messages.push(newMessage);
+        room.updatedAt = new Date();
+        
+        // Ensure both participants have proper names
+        let updated = false;
+        for (const p of room.participants) {
+          if (p.userId === senderId && (!p.userName || p.userName === "Anonymous")) {
+            p.userName = senderName || "Anonymous";
+            updated = true;
+          }
+        }
+        if (updated) {
+          await room.save();
+          console.log(`📝 Updated participant names in room ${roomId}`);
+        } else {
+          await room.save();
+        }
+      }
+
+      const savedMessage = room.messages[room.messages.length - 1];
       const roomSockets = await io.in(roomId).allSockets();
       console.log(`📤 Emitting to ${roomSockets.size} socket(s) in room ${roomId}`);
 
+      // Send new message to chat room
       io.to(roomId).emit("new_message", {
         ...newMessage,
         _id: savedMessage._id.toString(),
       });
 
-      io.emit("chat_updated", { roomId });
+      // ✅ Notify BOTH participants via their personal rooms
+      for (const participant of room.participants) {
+        io.to(`user_${participant.userId}`).emit("chat_updated", { roomId });
+        console.log(`🔔 Notified user_${participant.userId} of chat_updated`);
+      }
+
     } catch (error) {
       console.error("Error sending message:", error);
     }
   });
 
-  // ✅ REACTION HANDLER - Complete working version
   socket.on("react_message", async ({ roomId, messageId, emoji, userId }) => {
-    console.log("🔥 Reaction received:", { roomId, messageId, emoji, userId });
-    
     if (!roomId || !messageId || !emoji || !userId) {
-      console.error("❌ Missing fields:", { roomId, messageId, emoji, userId });
+      console.error("❌ react_message missing fields:", { roomId, messageId, emoji, userId });
       return;
     }
 
     try {
       const ChatRoom = require("./src/models/ChatRoom");
-      
       socket.join(roomId);
-      console.log(`📡 Socket in room ${roomId}`);
 
       const room = await ChatRoom.findOne({ roomId });
-      if (!room) {
-        console.error("❌ Room not found:", roomId);
-        return;
-      }
+      if (!room) { console.error("❌ react_message: room not found:", roomId); return; }
 
       const message = room.messages.id(messageId);
-      if (!message) {
-        console.error("❌ Message not found:", messageId);
-        return;
+      if (!message) { console.error("❌ react_message: message not found:", messageId); return; }
+
+      if (!message.reactions || !Array.isArray(message.reactions)) {
+        message.set("reactions", []);
       }
 
-      if (!message.reactions) {
-        message.reactions = [];
-      }
-
-      const existingIdx = message.reactions.findIndex(
-        (r) => r.emoji === emoji && r.userId === userId
-      );
+      const existingIdx = message.reactions.findIndex(r => r.emoji === emoji && r.userId === userId);
 
       if (existingIdx > -1) {
         message.reactions.splice(existingIdx, 1);
-        console.log(`➖ Reaction ${emoji} REMOVED`);
+        console.log(`➖ Reaction ${emoji} removed by ${userId}`);
       } else {
         message.reactions.push({ emoji, userId });
-        console.log(`➕ Reaction ${emoji} ADDED`);
+        console.log(`➕ Reaction ${emoji} added by ${userId}`);
       }
 
-      // Update timestamp manually
-      room.updatedAt = new Date();
-      
+      room.markModified("messages");
       await room.save();
-      console.log(`💾 Saved. Total reactions: ${message.reactions.length}`);
 
-      io.to(roomId).emit("reaction_updated", {
-        messageId: messageId,
-        reactions: message.reactions,
-      });
-      console.log(`📡 Broadcasted to room ${roomId}`);
-
+      io.to(roomId).emit("reaction_updated", { messageId, reactions: message.reactions });
     } catch (error) {
-      console.error("❌ Error handling reaction:", error);
+      console.error("Error handling reaction:", error);
     }
   });
 
@@ -190,8 +210,7 @@ io.on("connection", (socket) => {
   });
 });
 
-mongoose
-  .connect(process.env.MONGO_URI)
+mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log("✅ MongoDB Connected"))
   .catch((err) => console.log("Mongo Error:", err));
 

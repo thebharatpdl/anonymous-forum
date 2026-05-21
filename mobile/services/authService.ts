@@ -33,8 +33,40 @@ const sanitizeUser = (raw: any): User => {
     email: raw?.email ?? "",
     anonymousName: raw?.anonymousName ?? "Anonymous",
     avatarColor: raw?.avatarColor ?? "#6C63FF",
-    bio: raw?.bio ?? "", // ✅ Added bio field
+    bio: raw?.bio ?? "",
   };
+};
+
+// ✅ REGISTER with email/password
+export const register = async (email: string, password: string): Promise<{ token: string; user: User }> => {
+  const response = await axios.post(`${API_URL}/auth/register`, { email, password });
+
+  const user = sanitizeUser(response.data.user);
+
+  console.log("✅ Registered user:", JSON.stringify(user));
+
+  if (response.data.token) {
+    await AsyncStorage.setItem(TOKEN_KEY, response.data.token);
+    await AsyncStorage.setItem(USER_KEY, JSON.stringify(user));
+  }
+
+  return { token: response.data.token, user };
+};
+
+// ✅ LOGIN with email/password
+export const login = async (email: string, password: string): Promise<{ token: string; user: User }> => {
+  const response = await axios.post(`${API_URL}/auth/login`, { email, password });
+
+  const user = sanitizeUser(response.data.user);
+
+  console.log("✅ Logged in user:", JSON.stringify(user));
+
+  if (response.data.token) {
+    await AsyncStorage.setItem(TOKEN_KEY, response.data.token);
+    await AsyncStorage.setItem(USER_KEY, JSON.stringify(user));
+  }
+
+  return { token: response.data.token, user };
 };
 
 // ONE-CLICK ANONYMOUS REGISTER
@@ -43,7 +75,7 @@ export const anonymousRegister = async (): Promise<{ token: string; user: User }
 
   const user = sanitizeUser(response.data.user);
 
-  console.log("✅ Registered user:", JSON.stringify(user));
+  console.log("✅ Anonymous registered user:", JSON.stringify(user));
 
   if (response.data.token) {
     await AsyncStorage.setItem(TOKEN_KEY, response.data.token);
@@ -68,7 +100,6 @@ export const getCurrentUser = async (): Promise<User | null> => {
     const raw = JSON.parse(userJson);
     const user = sanitizeUser(raw);
 
-    // Safety check — if id is still empty after sanitization, storage is corrupt
     if (!user.id) {
       console.warn("⚠️ Stored user has no id, clearing storage");
       await AsyncStorage.removeItem(USER_KEY);
@@ -97,6 +128,21 @@ export const getUserId = async (): Promise<string | null> => {
 export const logout = async (): Promise<void> => {
   await AsyncStorage.removeItem(TOKEN_KEY);
   await AsyncStorage.removeItem(USER_KEY);
+
+
+
+
+
+
+
+  // Force a small delay to ensure storage is cleared
+  await new Promise(resolve => setTimeout(resolve, 100));
+  
+  // Verify removal
+  const token = await AsyncStorage.getItem(TOKEN_KEY);
+  const user = await AsyncStorage.getItem(USER_KEY);
+  console.log('Token removed:', !token);
+  console.log('User removed:', !user);
 };
 
 // Update user profile (bio only for anonymous users)
@@ -113,12 +159,11 @@ export const updateUserProfile = async (data: { bio?: string }) => {
   
   const updatedUser = await response.json();
   
-  // Update stored user
   const currentUser = await getCurrentUser();
   const mergedUser = { 
     ...currentUser, 
     ...updatedUser,
-    bio: updatedUser.bio || data.bio || "", // Ensure bio is saved
+    bio: updatedUser.bio || data.bio || "",
   };
   await AsyncStorage.setItem(USER_KEY, JSON.stringify(mergedUser));
   

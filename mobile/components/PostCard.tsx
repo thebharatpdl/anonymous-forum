@@ -11,6 +11,8 @@ import {
   Pressable,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { Feather } from "@expo/vector-icons";
+
 import { useRouter } from "expo-router";
 import { useAppDispatch } from "../src/redux/hooks";
 import { likePostAsync, commentPostAsync, Post } from "../src/redux/postsSlice";
@@ -149,25 +151,24 @@ export default function PostCard({ post }: PostCardProps) {
         <View style={styles.actions}>
           <TouchableOpacity style={styles.actionBtn} onPress={handleLike} disabled={isLiking}>
             <Ionicons
-              name={liked ? "heart" : "heart-outline"}
-              size={20}
-              color={liked ? "#F43F5E" : "#9CA3AF"}
-            />
+  name={liked ? "arrow-up-circle" : "arrow-up-circle-outline"}
+  size={20}
+  color={liked ? "#10B981" : "#000000"}
+/>
             <Text style={[styles.actionCount, liked && { color: "#F43F5E" }]}>
               {(post.likes || 0) + (liked ? 1 : 0)}
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.actionBtn} onPress={() => setCommentModalVisible(true)}>
-            <Ionicons name="chatbubble-outline" size={19} color="#9CA3AF" />
+            <Ionicons name="chatbubble-outline" size={19} color="#000000" />
             <Text style={styles.actionCount}>{localComments.length}</Text>
           </TouchableOpacity>
 
           <View style={styles.actionSpacer} />
 
           <TouchableOpacity style={styles.chatBtn} onPress={handleStartChat}>
-            <Ionicons name="send" size={15} color="#6C63FF" />
-            <Text style={styles.chatBtnText}>Message</Text>
+            <Feather name="send" size={15} color="#000000" />
           </TouchableOpacity>
         </View>
       </Pressable>
@@ -304,8 +305,8 @@ const styles = StyleSheet.create({
   chatBtn: {
     flexDirection: "row", alignItems: "center", gap: 5,
     paddingHorizontal: 14, paddingVertical: 7,
-    borderRadius: 20, backgroundColor: "#EEF2FF",
-    borderWidth: 1, borderColor: "#C7D2FE",
+    borderRadius: 20, backgroundColor: "#f9f9fa",
+    borderWidth: 1, borderColor: "#f6f6f7",
   },
   chatBtnText: { fontSize: 13, color: "#6C63FF", fontWeight: "700" },
 

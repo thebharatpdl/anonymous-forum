@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const Post = require("../models/Post");
+const Notification = require("../models/Notification");
 const { protect } = require("../middleware/authMiddleware");
 
 // ============================================
@@ -42,6 +43,7 @@ router.get("/", async (req, res) => {
 
 // ============================================
 // LIKE POST (Public - No auth required for anonymous)
+// WITH NOTIFICATION
 // ============================================
 router.post("/like/:id", async (req, res) => {
   try {
@@ -50,18 +52,56 @@ router.post("/like/:id", async (req, res) => {
       return res.status(404).json({ message: "Post not found" });
     }
 
+    // Get user from token if available
+    let userId = null;
+    let userName = "Someone";
+    try {
+      const token = req.headers.authorization?.split(" ")[1];
+      if (token) {
+        const jwt = require("jsonwebtoken");
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || "your_secret_key_here");
+        const User = require("../models/User");
+        const user = await User.findById(decoded.userId);
+        if (user) {
+          userId = user._id;
+          userName = user.anonymousName;
+        }
+      }
+    } catch (e) {}
+
     post.likes = (post.likes || 0) + 1;
-    const updatedPost = await post.save();
+    await post.save();
+
+    // Create notification (don't notify yourself)
+    if (userId && post.authorId && userId.toString() !== post.authorId.toString()) {
+      const notification = new Notification({
+        recipientId: post.authorId,
+        senderId: userId,
+        senderName: userName,
+        type: "like",
+        postId: post._id,
+        content: `${userName} liked your post`,
+      });
+      await notification.save();
+      console.log(`🔔 Notification saved: ${userName} liked post ${post._id}`);
+
+      // Emit real-time notification
+      const io = req.app.get("io");
+      if (io) {
+        io.to(`user_${post.authorId}`).emit("new_notification", notification);
+        console.log(`📡 Emitted new_notification to user_${post.authorId}`);
+      }
+    }
 
     const io = req.app.get("io");
     if (io) {
       io.emit("like_updated", {
-        postId: updatedPost._id.toString(),
-        likes: updatedPost.likes,
+        postId: post._id.toString(),
+        likes: post.likes,
       });
     }
 
-    res.json({ likes: updatedPost.likes });
+    res.json({ likes: post.likes });
   } catch (err) {
     console.error("Like post error:", err);
     res.status(500).json({ error: err.message });
@@ -69,10 +109,7 @@ router.post("/like/:id", async (req, res) => {
 });
 
 // ============================================
-// COMMENT ON POST (Public - No auth required)
-// ============================================
-// ============================================
-// COMMENT ON POST - FIXED
+// COMMENT ON POST - WITH NOTIFICATION
 // ============================================
 router.post("/comment/:id", async (req, res) => {
   try {
@@ -86,17 +123,31 @@ router.post("/comment/:id", async (req, res) => {
       return res.status(404).json({ message: "Post not found" });
     }
 
-    // Get username from request body
-    const username = req.body.username || "Anonymous";
-    const content = req.body.content;
+    // Get user from token if available
+    let userId = null;
+    let userName = "Someone";
+    try {
+      const token = req.headers.authorization?.split(" ")[1];
+      if (token) {
+        const jwt = require("jsonwebtoken");
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || "your_secret_key_here");
+        const User = require("../models/User");
+        const user = await User.findById(decoded.userId);
+        if (user) {
+          userId = user._id;
+          userName = user.anonymousName;
+        }
+      }
+    } catch (e) {}
 
+    const content = req.body.content;
     if (!content) {
       return res.status(400).json({ message: "Comment content is required" });
     }
 
     const newComment = {
       content: content,
-      username: username,
+      username: userName,
       createdAt: new Date().toISOString(),
     };
 
@@ -105,6 +156,27 @@ router.post("/comment/:id", async (req, res) => {
     await post.save();
 
     console.log("✅ Comment saved:", newComment);
+
+    // Create notification (don't notify yourself)
+    if (userId && post.authorId && userId.toString() !== post.authorId.toString()) {
+      const notification = new Notification({
+        recipientId: post.authorId,
+        senderId: userId,
+        senderName: userName,
+        type: "comment",
+        postId: post._id,
+        content: `${userName} commented: "${content.substring(0, 50)}${content.length > 50 ? '...' : ''}"`,
+      });
+      await notification.save();
+      console.log(`🔔 Notification saved: ${userName} commented on post ${post._id}`);
+
+      // Emit real-time notification
+      const io = req.app.get("io");
+      if (io) {
+        io.to(`user_${post.authorId}`).emit("new_notification", notification);
+        console.log(`📡 Emitted new_notification to user_${post.authorId}`);
+      }
+    }
 
     const io = req.app.get("io");
     if (io) {

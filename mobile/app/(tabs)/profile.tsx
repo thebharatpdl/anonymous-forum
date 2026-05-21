@@ -21,7 +21,6 @@ import { getCurrentUser, User, logout } from '../../services/authService';
 import EditProfileModal from '../../components/EditProfileModal';
 
 const { width } = Dimensions.get('window');
-const GRID_SIZE = (width - 3) / 3;
 
 // ─── Avatar color from name ───────────────────────────────────────────────────
 function getGradient(name: string): [string, string, string] {
@@ -140,9 +139,15 @@ export default function ProfileScreen() {
   const handleShare = () =>
     Share.share({ message: `I'm ${currentUser?.anonymousName} on EchoVoice — the anonymous social app!` });
 
+  // ✅ FIXED: Logout goes directly to login screen
   const handleLogout = async () => {
-    await logout();
-    router.replace('/');
+    try {
+      await logout();
+      // Navigate directly to login screen instead of welcome screen
+      router.replace('/(auth)/login');
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
   };
 
   if (loading) {
@@ -163,7 +168,7 @@ export default function ProfileScreen() {
         onUpdate={(u) => setCurrentUser(u)}
       />
 
-      {/* ── Sticky Header ── */}
+      {/* ── Sticky Header with Logout ── */}
       <Animated.View style={[styles.stickyHeader, { backgroundColor: headerBg }]}>
         <Animated.Text style={[styles.stickyTitle, { opacity: headerTitleOpacity }]}>
           @{(currentUser?.anonymousName || 'anonymous').toLowerCase()}
@@ -195,7 +200,6 @@ export default function ProfileScreen() {
             end={{ x: 1, y: 1 }}
             style={styles.banner}
           >
-            {/* Decorative blobs */}
             <View style={[styles.blob, { top: -40, right: -40, width: 160, height: 160, backgroundColor: colors[0] + '25' }]} />
             <View style={[styles.blob, { top: 20, right: 80, width: 80, height: 80, backgroundColor: colors[2] + '20' }]} />
             <View style={[styles.blob, { bottom: -30, left: -30, width: 120, height: 120, backgroundColor: colors[1] + '18' }]} />
@@ -226,7 +230,6 @@ export default function ProfileScreen() {
             <Text style={styles.handle}>{(currentUser?.anonymousName || 'anonymous').toLowerCase()}</Text>
             <View style={[styles.verifiedBadge, { backgroundColor: colors[0] + '15', borderColor: colors[0] + '40' }]}>
               <Ionicons name="shield-checkmark" size={10} color={colors[0]} />
-              <Text style={[styles.verifiedText, { color: colors[0] }]}></Text>
             </View>
           </View>
 
@@ -286,10 +289,20 @@ export default function ProfileScreen() {
           </View>
 
           {/* ID Badge */}
-           <View style={[styles.idBadge, { backgroundColor: colors[0] + '08' }]}>
+          <View style={[styles.idBadge, { backgroundColor: colors[0] + '08' }]}>
             <Ionicons name="finger-print-outline" size={12} color="#9CA3AF" />
             <Text style={styles.idText}>ID · {currentUser?.id?.slice(-10).toUpperCase() || '----------'}</Text>
-          </View> 
+          </View>
+
+          {/* ✅ PERMANENT LOGOUT BUTTON */}
+          <TouchableOpacity 
+            style={styles.permanentLogoutBtn} 
+            onPress={handleLogout}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="log-out-outline" size={20} color="#EF4444" />
+            <Text style={styles.permanentLogoutText}>Sign Out</Text>
+          </TouchableOpacity>
         </Animated.View>
 
         {/* ── Tab Bar ── */}
@@ -337,11 +350,7 @@ export default function ProfileScreen() {
           </View>
         )}
 
-        {/* ── Privacy Footer ── */}
-        <View style={styles.privacyRow}>
-          <Ionicons name="lock-closed" size={12} color="#10B981" />
-          <Text style={styles.privacyText}>Your identity is 100% anonymous and protected</Text>
-        </View>
+        
       </Animated.ScrollView>
     </View>
   );
@@ -464,6 +473,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20,
   },
   idText: { fontSize: 11, color: '#9CA3AF', fontFamily: 'monospace', fontWeight: '600' },
+
+  // ✅ Permanent Logout Button
+  permanentLogoutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    width: '100%',
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#FEE2E2',
+    backgroundColor: '#FEF2F2',
+    marginTop: 20,
+    marginBottom: 10,
+  },
+  permanentLogoutText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#EF4444',
+  },
 
   // Tab Bar
   tabBar: {

@@ -26,7 +26,7 @@ import {
 } from "../../src/redux/postsSlice";
 import PostCard from "../../components/PostCard";
 import socketService from "../../services/socket";
-import { getUserId } from "../../services/authService";
+import { getUserId, getToken } from "../../services/authService";
 
 const INITIAL_NUM_TO_RENDER = 8;
 const MAX_TO_RENDER_PER_BATCH = 10;
@@ -38,7 +38,7 @@ export default function HomeScreen() {
   const { posts, loading, isConnected } = useAppSelector((state) => state.posts);
   const [refreshing, setRefreshing] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(3);
+  const [unreadCount, setUnreadCount] = useState(0);
   const flatListRef = useRef<FlatList>(null);
   const scrollY = useRef(new Animated.Value(0)).current;
 
@@ -48,6 +48,37 @@ export default function HomeScreen() {
     const hide = Keyboard.addListener("keyboardDidHide", () => setIsKeyboardVisible(false));
     return () => { show.remove(); hide.remove(); };
   }, []);
+
+  // Fetch unread notification count
+  const fetchUnreadCount = useCallback(async () => {
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const response = await fetch("http://192.168.1.69:5000/api/notifications/unread-count", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await response.json();
+      setUnreadCount(data.count || 0);
+    } catch (error) {
+      console.error("Error fetching unread count:", error);
+    }
+  }, []);
+
+  // Listen for real-time notifications
+  useEffect(() => {
+    fetchUnreadCount();
+    
+    const handleNewNotification = () => {
+      console.log("🔔 New notification received, updating badge");
+      fetchUnreadCount();
+    };
+    
+    socketService.on("new_notification", handleNewNotification);
+    
+    return () => {
+      socketService.off("new_notification", handleNewNotification);
+    };
+  }, [fetchUnreadCount]);
 
   const getCurrentUserId = useCallback(async () => {
     return (await getUserId()) || "";
@@ -90,8 +121,9 @@ export default function HomeScreen() {
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await dispatch(fetchPosts());
+    await fetchUnreadCount();
     setRefreshing(false);
-  }, [dispatch]);
+  }, [dispatch, fetchUnreadCount]);
 
   const renderItem = useCallback(
     ({ item, index }: { item: Post; index: number }) => (
@@ -129,6 +161,7 @@ export default function HomeScreen() {
       </Animated.View>
 
       <View style={styles.headerIcons}>
+        {/* Notification Bell with Real-time Badge */}
         <TouchableOpacity
           style={styles.iconBtn}
           onPress={() => router.push("/notifications")}
@@ -137,11 +170,12 @@ export default function HomeScreen() {
           <Ionicons name="heart-outline" size={22} color="#6C63FF" />
           {unreadCount > 0 && (
             <View style={styles.badge}>
-              <Text style={styles.badgeText}>{unreadCount > 9 ? "9+" : unreadCount}</Text>
+              <Text style={styles.badgeText}>{unreadCount > 99 ? "99+" : unreadCount}</Text>
             </View>
           )}
         </TouchableOpacity>
 
+        {/* Chat Icon */}
         <TouchableOpacity
           style={styles.iconBtn}
           onPress={() => router.push("/chatlist")}
@@ -240,7 +274,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 30,
     fontWeight: "800",
-    color: "#6C63FF",
+    color: "#000000",
     letterSpacing: -0.8,
     marginBottom: 4,
   },
