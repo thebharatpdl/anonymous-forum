@@ -31,6 +31,33 @@ bio: {
   default: "",
   maxlength: 150,
 }, 
+savedPosts: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Post',
+    default: [],
+  }],
+   hiddenPosts: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Post',
+    default: [],
+  }],
+  reportedPosts: [{
+    postId: { type: mongoose.Schema.Types.ObjectId, ref: 'Post' },
+    reason: { type: String },
+    reportedAt: { type: Date, default: Date.now },
+  }],
+
+    following: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: [],
+  }],
+  followers: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: [],
+  }],
+  
 });
 
 userSchema.pre("save", async function() {

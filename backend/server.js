@@ -16,16 +16,27 @@ app.use(cors());
 app.use(express.json());
 app.set("io", io);
 
+// ============================================
+// ROUTES - ALL IMPORTED HERE (NOT inside socket handlers)
+// ============================================
 const postRoutes = require("./src/routes/postRoutes");
 const chatRoutes = require("./src/routes/chatRoutes");
 const authRoutes = require("./src/routes/authRoutes");
 const notificationRoutes = require("./src/routes/notificationRoutes");
+const userRoutes = require("./src/routes/userRoutes"); // ✅ MOVED HERE
 
+// ============================================
+// USE ROUTES
+// ============================================
 app.use("/api/auth", authRoutes);
 app.use("/api/posts", postRoutes);
 app.use("/api/chat", chatRoutes);
-app.use("/api/notifications", notificationRoutes); // ✅ MOVED OUTSIDE socket handler
+app.use("/api/notifications", notificationRoutes);
+app.use("/api/users", userRoutes); // ✅ ADDED HERE
 
+// ============================================
+// SOCKET.IO HANDLERS
+// ============================================
 io.on("connection", (socket) => {
   console.log("✅ New client connected:", socket.id);
 
@@ -210,12 +221,21 @@ io.on("connection", (socket) => {
   });
 });
 
+// ============================================
+// DATABASE CONNECTION
+// ============================================
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log("✅ MongoDB Connected"))
   .catch((err) => console.log("Mongo Error:", err));
 
+// ============================================
+// TEST ROUTE
+// ============================================
 app.get("/", (req, res) => res.send("API is running!"));
 
+// ============================================
+// SERVER START
+// ============================================
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);

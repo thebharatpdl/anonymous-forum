@@ -34,6 +34,27 @@ router.get("/users", async (req, res) => {
   }
 });
 
+
+// Get user by ID (for profile viewing)
+router.get("/user/:id", protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id).select("-password -pushTokens");
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    res.json({
+      id: user._id,
+      anonymousName: user.anonymousName,
+      bio: user.bio || "",
+      avatarColor: user.avatarColor,
+      createdAt: user.createdAt,
+    });
+  } catch (error) {
+    console.error("Get user error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ✅ SAVE PUSH TOKEN
 router.post("/push-token", protect, async (req, res) => {
   try {
