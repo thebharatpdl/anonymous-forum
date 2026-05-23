@@ -3,6 +3,7 @@ const router = express.Router();
 const Post = require("../models/Post");
 const Notification = require("../models/Notification");
 const { protect } = require("../middleware/authMiddleware");
+const { sendPushNotification } = require("../utils/sendPushNotification");
 
 // ============================================
 // CREATE POST - PROTECTED ROUTE (requires auth)
@@ -33,7 +34,26 @@ router.post("/", protect, async (req, res) => {
 // ============================================
 router.get("/", async (req, res) => {
   try {
-    const posts = await Post.find().sort({ createdAt: -1 });
+    let posts = await Post.find().sort({ createdAt: -1 });
+    
+    // If user is authenticated, filter out hidden posts
+    try {
+      const token = req.headers.authorization?.split(" ")[1];
+      if (token) {
+        const jwt = require("jsonwebtoken");
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || "your_secret_key_here");
+        const User = require("../models/User");
+        const user = await User.findById(decoded.userId);
+        
+        if (user && user.hiddenPosts && user.hiddenPosts.length > 0) {
+          const hiddenIds = user.hiddenPosts.map(id => id.toString());
+          posts = posts.filter(post => !hiddenIds.includes(post._id.toString()));
+        }
+      }
+    } catch (e) {
+      // No auth or invalid token, return all posts
+    }
+    
     res.json(posts);
   } catch (err) {
     console.error("Get posts error:", err);
@@ -42,7 +62,85 @@ router.get("/", async (req, res) => {
 });
 
 // ============================================
-// LIKE POST - WITH DUPLICATE PREVENTION
+// GET SINGLE POST
+// ============================================
+router.get("/:id", async (req, res) => {
+  try {
+    const post = await Post.findById(req.params.id);
+    if (!post) {
+      return res.status(404).json({ message: "Post not found" });
+    }
+    res.json(post);
+  } catch (err) {
+    console.error("Get post error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
+// EDIT POST (Protected - User can edit own posts)
+// ============================================
+router.put("/:id", protect, async (req, res) => {
+  try {
+    const post = await Post.findById(req.params.id);
+    
+    if (!post) {
+      return res.status(404).json({ message: "Post not found" });
+    }
+    
+    // Check if user owns the post
+    if (post.authorId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: "Not authorized to edit this post" });
+    }
+    
+    post.content = req.body.content;
+    post.edited = true;
+    await post.save();
+    
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("post_edited", { postId: post._id.toString(), content: post.content });
+    }
+    
+    res.json({ content: post.content, edited: true });
+  } catch (err) {
+    console.error("Edit post error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
+// DELETE POST (Protected - User can delete own posts)
+// ============================================
+router.delete("/:id", protect, async (req, res) => {
+  try {
+    const post = await Post.findById(req.params.id);
+    
+    if (!post) {
+      return res.status(404).json({ message: "Post not found" });
+    }
+    
+    // Check if user owns the post
+    if (post.authorId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: "Not authorized to delete this post" });
+    }
+    
+    await post.deleteOne();
+    
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("post_deleted", { postId: req.params.id });
+    }
+    
+    res.json({ message: "Post deleted successfully" });
+  } catch (err) {
+    console.error("Delete post error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
+// LIKE POST - WITH DUPLICATE PREVENTION & PUSH NOTIFICATION
 // ============================================
 router.post("/like/:id", async (req, res) => {
   try {
@@ -68,7 +166,7 @@ router.post("/like/:id", async (req, res) => {
       }
     } catch (e) {}
 
-    // ✅ Initialize likedBy array if it doesn't exist
+    // Initialize likedBy array if it doesn't exist
     if (!post.likedBy) {
       post.likedBy = [];
     }
@@ -77,7 +175,7 @@ router.post("/like/:id", async (req, res) => {
     const alreadyLiked = userIdStr && post.likedBy.includes(userIdStr);
 
     if (alreadyLiked) {
-      // ✅ UNLIKE - Remove the like
+      // UNLIKE - Remove the like
       post.likes = Math.max(0, (post.likes || 0) - 1);
       post.likedBy = post.likedBy.filter(id => id !== userIdStr);
       await post.save();
@@ -90,7 +188,7 @@ router.post("/like/:id", async (req, res) => {
 
       return res.json({ likes: post.likes, liked: false });
     } else {
-      // ✅ LIKE - Add the like
+      // LIKE - Add the like
       post.likes = (post.likes || 0) + 1;
       if (userIdStr) {
         post.likedBy.push(userIdStr);
@@ -114,6 +212,20 @@ router.post("/like/:id", async (req, res) => {
         const io = req.app.get("io");
         io.to(`user_${post.authorId}`).emit("new_notification", notification);
         console.log(`📡 Emitted new_notification to user_${post.authorId}`);
+
+        // ✅ SEND PUSH NOTIFICATION
+        const User = require("../models/User");
+        const postAuthor = await User.findById(post.authorId);
+        if (postAuthor && postAuthor.pushTokens && postAuthor.pushTokens.length > 0) {
+          for (const pushToken of postAuthor.pushTokens) {
+            await sendPushNotification(
+              pushToken,
+              `${userName} liked your post`,
+              post.content.substring(0, 50) + (post.content.length > 50 ? '...' : ''),
+              { type: 'post', postId: post._id.toString() }
+            );
+          }
+        }
       }
 
       const io = req.app.get("io");
@@ -131,7 +243,7 @@ router.post("/like/:id", async (req, res) => {
 });
 
 // ============================================
-// COMMENT ON POST - WITH NOTIFICATION
+// COMMENT ON POST - WITH NOTIFICATION & PUSH NOTIFICATION
 // ============================================
 router.post("/comment/:id", async (req, res) => {
   try {
@@ -196,6 +308,20 @@ router.post("/comment/:id", async (req, res) => {
       const io = req.app.get("io");
       io.to(`user_${post.authorId}`).emit("new_notification", notification);
       console.log(`📡 Emitted new_notification to user_${post.authorId}`);
+
+      // ✅ SEND PUSH NOTIFICATION
+      const User = require("../models/User");
+      const postAuthor = await User.findById(post.authorId);
+      if (postAuthor && postAuthor.pushTokens && postAuthor.pushTokens.length > 0) {
+        for (const pushToken of postAuthor.pushTokens) {
+          await sendPushNotification(
+            pushToken,
+            `${userName} commented on your post`,
+            content.substring(0, 50) + (content.length > 50 ? '...' : ''),
+            { type: 'post', postId: post._id.toString() }
+          );
+        }
+      }
     }
 
     const io = req.app.get("io");
@@ -242,7 +368,6 @@ router.post("/repost/:id", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 
 // ============================================
 // SAVE POST (Protected)
@@ -366,127 +491,6 @@ router.post("/report/:id", protect, async (req, res) => {
     res.json({ reported: true, message: "Post reported. We'll review it." });
   } catch (err) {
     console.error("Report post error:", err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Update GET POSTS to exclude hidden posts
-router.get("/", async (req, res) => {
-  try {
-    let posts = await Post.find().sort({ createdAt: -1 });
-    
-    // If user is authenticated, filter out hidden posts
-    try {
-      const token = req.headers.authorization?.split(" ")[1];
-      if (token) {
-        const jwt = require("jsonwebtoken");
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || "your_secret_key_here");
-        const User = require("../models/User");
-        const user = await User.findById(decoded.userId);
-        
-        if (user && user.hiddenPosts && user.hiddenPosts.length > 0) {
-          const hiddenIds = user.hiddenPosts.map(id => id.toString());
-          posts = posts.filter(post => !hiddenIds.includes(post._id.toString()));
-        }
-      }
-    } catch (e) {
-      // No auth or invalid token, return all posts
-    }
-    
-    res.json(posts);
-  } catch (err) {
-    console.error("Get posts error:", err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-
-
-
-
-
-
-// ============================================
-// EDIT POST (Protected - User can edit own posts)
-// ============================================
-router.put("/:id", protect, async (req, res) => {
-  try {
-    const post = await Post.findById(req.params.id);
-    
-    if (!post) {
-      return res.status(404).json({ message: "Post not found" });
-    }
-    
-    // Check if user owns the post
-    if (post.authorId.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ message: "Not authorized to edit this post" });
-    }
-    
-    post.content = req.body.content;
-    post.edited = true;
-    await post.save();
-    
-    const io = req.app.get("io");
-    if (io) {
-      io.emit("post_edited", { postId: post._id.toString(), content: post.content });
-    }
-    
-    res.json({ content: post.content, edited: true });
-  } catch (err) {
-    console.error("Edit post error:", err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-
-
-
-
-
-
-
-// ============================================
-// DELETE POST (Protected - User can delete own posts)
-// ============================================
-router.delete("/:id", protect, async (req, res) => {
-  try {
-    const post = await Post.findById(req.params.id);
-    
-    if (!post) {
-      return res.status(404).json({ message: "Post not found" });
-    }
-    
-    // Check if user owns the post
-    if (post.authorId.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ message: "Not authorized to delete this post" });
-    }
-    
-    await post.deleteOne();
-    
-    const io = req.app.get("io");
-    if (io) {
-      io.emit("post_deleted", { postId: req.params.id });
-    }
-    
-    res.json({ message: "Post deleted successfully" });
-  } catch (err) {
-    console.error("Delete post error:", err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ============================================
-// GET SINGLE POST
-// ============================================
-router.get("/:id", async (req, res) => {
-  try {
-    const post = await Post.findById(req.params.id);
-    if (!post) {
-      return res.status(404).json({ message: "Post not found" });
-    }
-    res.json(post);
-  } catch (err) {
-    console.error("Get post error:", err);
     res.status(500).json({ error: err.message });
   }
 });

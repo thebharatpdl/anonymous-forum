@@ -171,6 +171,46 @@ router.post("/register", async (req, res) => {
   }
 });
 
+
+
+// Save push token
+router.post("/push-token", protect, async (req, res) => {
+  try {
+    const { pushToken } = req.body;
+    if (!pushToken) {
+      return res.status(400).json({ error: "Push token required" });
+    }
+
+    if (!req.user.pushTokens) {
+      req.user.pushTokens = [];
+    }
+
+    if (!req.user.pushTokens.includes(pushToken)) {
+      req.user.pushTokens.push(pushToken);
+      await req.user.save();
+      console.log(`✅ Push token added for ${req.user.anonymousName}`);
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Remove push token
+router.post("/push-token/remove", protect, async (req, res) => {
+  try {
+    const { pushToken } = req.body;
+    if (req.user.pushTokens) {
+      req.user.pushTokens = req.user.pushTokens.filter(t => t !== pushToken);
+      await req.user.save();
+    }
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ✅ LOGIN - Added bio field
 router.post("/login", async (req, res) => {
   try {
