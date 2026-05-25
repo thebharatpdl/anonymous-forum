@@ -10,6 +10,7 @@ import {
   Platform,
   Alert,
   Animated,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,6 +21,7 @@ import { getToken, getCurrentUser } from '../../services/authService';
 import axios from 'axios';
 import { API_URL } from '../../src/config';
 
+const { width } = Dimensions.get('window');
 const MAX_CHARS = 280;
 
 // Avatar color from name
@@ -41,8 +43,9 @@ export default function CreatePostScreen() {
   const [userName, setUserName] = useState('Anonymous');
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(24)).current;
-  const progressAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(30)).current;
+  const scaleAnim = useRef(new Animated.Value(0.95)).current;
+  const charBounceAnim = useRef(new Animated.Value(1)).current;
 
   const remainingChars = MAX_CHARS - content.length;
   const isDisabled = content.trim().length === 0 || loading;
@@ -53,17 +56,21 @@ export default function CreatePostScreen() {
   useEffect(() => {
     getCurrentUser().then((u) => { if (u) setUserName(u.anonymousName); });
     Animated.parallel([
-      Animated.timing(fadeAnim, { toValue: 1, duration: 350, useNativeDriver: true }),
-      Animated.spring(slideAnim, { toValue: 0, tension: 70, friction: 11, useNativeDriver: true }),
+      Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
+      Animated.spring(slideAnim, { toValue: 0, tension: 70, friction: 10, useNativeDriver: true }),
+      Animated.spring(scaleAnim, { toValue: 1, tension: 80, friction: 12, useNativeDriver: true }),
     ]).start();
   }, []);
 
-  // Animate progress ring
+  // Animate char counter when approaching limit
   useEffect(() => {
-    Animated.timing(progressAnim, {
-      toValue: progress, duration: 150, useNativeDriver: false,
-    }).start();
-  }, [progress]);
+    if (remainingChars <= 30 && remainingChars > 0) {
+      Animated.sequence([
+        Animated.spring(charBounceAnim, { toValue: 1.2, tension: 200, friction: 3, useNativeDriver: true }),
+        Animated.spring(charBounceAnim, { toValue: 1, tension: 200, friction: 3, useNativeDriver: true }),
+      ]).start();
+    }
+  }, [remainingChars]);
 
   const createPost = async () => {
     if (isDisabled) return;
@@ -77,7 +84,7 @@ export default function CreatePostScreen() {
         { headers: { Authorization: `Bearer ${token}` } }
       );
       dispatch(addPost(response.data));
-      Alert.alert('Posted!', 'Your anonymous thought is live.', [
+      Alert.alert('✨ Posted!', 'Your anonymous thought is now live.', [
         { text: 'OK', onPress: () => router.back() },
       ]);
       setContent('');
@@ -90,7 +97,7 @@ export default function CreatePostScreen() {
 
   const handleCancel = () => {
     if (content.length > 0) {
-      Alert.alert('Discard post?', 'Your text will be lost.', [
+      Alert.alert('Discard post?', 'Your text will be lost if you leave.', [
         { text: 'Keep editing', style: 'cancel' },
         { text: 'Discard', style: 'destructive', onPress: () => router.back() },
       ]);
@@ -99,32 +106,46 @@ export default function CreatePostScreen() {
     }
   };
 
-  // Progress ring color
-  const ringColor = progressAnim.interpolate({
-    inputRange: [0, 0.7, 0.9, 1],
-    outputRange: ['#6C63FF', '#6C63FF', '#F59E0B', '#F43F5E'],
-  });
+  // Get progress color
+  const getProgressColor = () => {
+    if (remainingChars <= 0) return '#F43F5E';
+    if (remainingChars <= 30) return '#F59E0B';
+    return '#6C63FF';
+  };
 
   // Char count color
-  const charColor = remainingChars <= 0
-    ? '#F43F5E'
-    : remainingChars <= 30
-    ? '#F59E0B'
-    : '#9CA3AF';
+  const getCharColor = () => {
+    if (remainingChars <= 0) return '#F43F5E';
+    if (remainingChars <= 30) return '#F59E0B';
+    return '#9CA3AF';
+  };
+
+  // Get warning text
+  const getWarningText = () => {
+    if (remainingChars <= 0) return 'Character limit reached';
+    if (remainingChars <= 10) return 'Almost at limit!';
+    if (remainingChars <= 30) return 'Getting close to limit';
+    return '';
+  };
 
   return (
     <SafeAreaView style={styles.safe}>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
         {/* ── Header ── */}
         <View style={styles.header}>
-          <TouchableOpacity style={styles.closeBtn} onPress={handleCancel} activeOpacity={0.7}>
-            <Ionicons name="close" size={22} color="#374151" />
+          <TouchableOpacity 
+            style={styles.closeBtn} 
+            onPress={handleCancel} 
+            activeOpacity={0.7}
+          >
+            <Ionicons name="arrow-back" size={22} color="#374151" />
           </TouchableOpacity>
 
-          <Text style={styles.headerTitle}>New Post</Text>
+          <Text style={styles.headerTitle}>Create Post</Text>
 
           <TouchableOpacity
             style={[styles.postBtn, isDisabled && styles.postBtnDisabled]}
@@ -136,195 +157,454 @@ export default function CreatePostScreen() {
               <ActivityIndicator color="#FFF" size="small" />
             ) : (
               <>
-                <Ionicons name="send" size={14} color="#FFF" />
                 <Text style={styles.postBtnText}>Post</Text>
+                <Ionicons name="send" size={14} color="#FFF" />
               </>
             )}
           </TouchableOpacity>
         </View>
 
-        {/* ── Composer Card ── */}
-        <Animated.View
-          style={[
-            styles.card,
-            isFocused && styles.cardFocused,
-            { opacity: fadeAnim, transform: [{ translateY: slideAnim }] },
-          ]}
+        {/* ── Main Content ── */}
+        <Animated.ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         >
-          {/* Author Row */}
-          <View style={styles.authorRow}>
-            <View style={[styles.avatar, { backgroundColor: avatarColor + '18', borderColor: avatarColor + '40' }]}>
-              <Text style={[styles.avatarText, { color: avatarColor }]}>{avatarLetter}</Text>
-            </View>
-            <View>
-              <Text style={[styles.authorName, { color: avatarColor }]}>{userName}</Text>
-              <View style={styles.anonBadge}>
-                <Ionicons name="shield-checkmark" size={10} color="#10B981" />
-                <Text style={styles.anonBadgeText}>Anonymous</Text>
+          {/* Author Card */}
+          <Animated.View
+            style={[
+              styles.authorCard,
+              {
+                opacity: fadeAnim,
+                transform: [{ scale: scaleAnim }],
+              },
+            ]}
+          >
+            <View style={styles.authorRow}>
+              <View style={[styles.avatar, { backgroundColor: avatarColor + '15' }]}>
+                <Text style={[styles.avatarText, { color: avatarColor }]}>{avatarLetter}</Text>
               </View>
-            </View>
-          </View>
-
-          {/* Text Input */}
-          <TextInput
-            placeholder="What's on your mind? Share anonymously…"
-            placeholderTextColor="#C4C4D4"
-            value={content}
-            onChangeText={setContent}
-            onFocus={() => setIsFocused(true)}
-            onBlur={() => setIsFocused(false)}
-            multiline
-            style={styles.input}
-            maxLength={MAX_CHARS}
-            editable={!loading}
-            autoFocus
-          />
-
-          {/* Divider */}
-          <View style={styles.divider} />
-
-          {/* Footer */}
-          <View style={styles.footer}>
-            {/* Tips */}
-            <View style={styles.tipRow}>
-              <Ionicons name="lock-closed-outline" size={13} color="#9CA3AF" />
-              <Text style={styles.tipText}>Your identity stays hidden</Text>
-            </View>
-
-            {/* Char counter */}
-            <View style={styles.counterRow}>
-              {/* Progress ring (simple circle) */}
-              <View style={styles.progressRingWrap}>
-                <View style={[styles.progressRingBg, { borderColor: '#F0F0F8' }]} />
-                <Animated.View
-                  style={[
-                    styles.progressRingFill,
-                    {
-                      borderColor: ringColor,
-                      opacity: content.length > 0 ? 1 : 0,
-                    },
-                  ]}
-                />
-              </View>
-              <Text style={[styles.charCount, { color: charColor }]}>
-                {remainingChars}
-              </Text>
-            </View>
-          </View>
-        </Animated.View>
-
-        {/* ── Tips Card ── */}
-        <Animated.View style={[styles.tipsCard, { opacity: fadeAnim }]}>
-          <View style={styles.tipsRow}>
-            {[
-              { icon: "eye-off-outline", text: "Identity hidden" },
-              { icon: "globe-outline", text: "Shared globally" },
-              { icon: "heart-outline", text: "Get reactions" },
-            ].map((tip) => (
-              <View key={tip.text} style={styles.tipItem}>
-                <View style={styles.tipIconWrap}>
-                  <Ionicons name={tip.icon as any} size={16} color="#6C63FF" />
+              <View style={styles.authorInfo}>
+                <Text style={[styles.authorName, { color: avatarColor }]}>{userName}</Text>
+                <View style={styles.anonBadge}>
+                  <View style={styles.anonDot} />
+                  <Text style={styles.anonBadgeText}>Anonymous Post</Text>
                 </View>
-                <Text style={styles.tipItemText}>{tip.text}</Text>
               </View>
-            ))}
-          </View>
-        </Animated.View>
+            </View>
+          </Animated.View>
+
+          {/* Composer Card */}
+          <Animated.View
+            style={[
+              styles.composerCard,
+              isFocused && styles.composerCardFocused,
+              {
+                opacity: fadeAnim,
+                transform: [{ translateY: slideAnim }],
+              },
+            ]}
+          >
+            <TextInput
+              placeholder="What's on your mind?"
+              placeholderTextColor="#C6C6C8"
+              value={content}
+              onChangeText={setContent}
+              onFocus={() => setIsFocused(true)}
+              onBlur={() => setIsFocused(false)}
+              multiline
+              style={styles.input}
+              maxLength={MAX_CHARS}
+              editable={!loading}
+              autoFocus
+            />
+
+            {/* Warning message */}
+            {getWarningText() !== '' && (
+              <Animated.View style={[styles.warningContainer, { opacity: fadeAnim }]}>
+                <Ionicons 
+                  name={remainingChars <= 0 ? "alert-circle" : "information-circle"} 
+                  size={16} 
+                  color={getCharColor()} 
+                />
+                <Text style={[styles.warningText, { color: getCharColor() }]}>
+                  {getWarningText()}
+                </Text>
+              </Animated.View>
+            )}
+          </Animated.View>
+
+          {/* Footer Stats Card */}
+          <Animated.View style={[styles.statsCard, { opacity: fadeAnim }]}>
+            <View style={styles.statsRow}>
+              {/* Character counter */}
+              <View style={styles.statItem}>
+                <View style={[styles.statIconBg, { backgroundColor: getProgressColor() + '10' }]}>
+                  <Ionicons name="text-outline" size={18} color={getProgressColor()} />
+                </View>
+                <View style={styles.statInfo}>
+                  <Animated.Text 
+                    style={[
+                      styles.statValue, 
+                      { color: getCharColor(), transform: [{ scale: charBounceAnim }] }
+                    ]}
+                  >
+                    {remainingChars}
+                  </Animated.Text>
+                  <Text style={styles.statLabel}>characters left</Text>
+                </View>
+              </View>
+
+              {/* Progress bar */}
+              <View style={styles.progressContainer}>
+                <View style={styles.progressBarBg}>
+                  <Animated.View 
+                    style={[
+                      styles.progressBarFill,
+                      { 
+                        width: `${progress * 100}%`,
+                        backgroundColor: getProgressColor(),
+                      }
+                    ]} 
+                  />
+                </View>
+              </View>
+            </View>
+          </Animated.View>
+
+          {/* Tips Section */}
+          <Animated.View style={[styles.tipsSection, { opacity: fadeAnim }]}>
+  <View style={styles.tipsHeader}>
+    <Text style={styles.tipsTitle}>A little inspiration for you...</Text>
+  </View>
+  
+  <View style={styles.tipsGrid}>
+    <View style={styles.tipCard}>
+      <View style={styles.tipIconWrap}>
+        <Ionicons name="eye-off-outline" size={24} color="#6C63FF" />
+      </View>
+      <Text style={styles.tipTitle}>You're invisible here </Text>
+      <Text style={styles.tipDesc}>No one knows it's you — speak freely!</Text>
+    </View>
+
+    <View style={styles.tipCard}>
+      <View style={styles.tipIconWrap}>
+        <Ionicons name="heart-outline" size={24} color="#F43F5E" />
+      </View>
+      <Text style={styles.tipTitle}>Just be yourself </Text>
+      <Text style={styles.tipDesc}>The realest posts get the most love</Text>
+    </View>
+
+    <View style={styles.tipCard}>
+      <View style={styles.tipIconWrap}>
+        <Ionicons name="chatbubbles-outline" size={24} color="#10B981" />
+      </View>
+      <Text style={styles.tipTitle}>Don't be a stranger 💬</Text>
+      <Text style={styles.tipDesc}>Reply to comments — make friends!</Text>
+    </View>
+  </View>
+</Animated.View>
+        
+        </Animated.ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#F7F7FC' },
+  safe: { 
+    flex: 1, 
+    backgroundColor: '#F2F2F7' 
+  },
+  scrollContent: {
+    paddingBottom: 40,
+  },
 
   // Header
   header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 16, paddingVertical: 12,
-    backgroundColor: '#F7F7FC',
-    borderBottomWidth: 1, borderBottomColor: '#EBEBF5',
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    justifyContent: 'space-between',
+    paddingHorizontal: 16, 
+    paddingVertical: 12,
+    backgroundColor: '#F2F2F7',
+    borderBottomWidth: 1, 
+    borderBottomColor: '#E5E5EA',
   },
   closeBtn: {
-    width: 40, height: 40, borderRadius: 20,
-    backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: '#EBEBF5',
-    shadowColor: '#6C63FF', shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06, shadowRadius: 8, elevation: 2,
+    width: 40, 
+    height: 40, 
+    borderRadius: 20,
+    backgroundColor: '#FFFFFF', 
+    alignItems: 'center', 
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  headerTitle: { fontSize: 17, fontWeight: '700', color: '#111827' },
+  headerTitle: { 
+    fontSize: 18, 
+    fontWeight: '700', 
+    color: '#1C1E21' 
+  },
   postBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    gap: 6,
     backgroundColor: '#6C63FF',
-    paddingHorizontal: 18, paddingVertical: 10, borderRadius: 22,
-    shadowColor: '#6C63FF', shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25, shadowRadius: 8, elevation: 4,
+    paddingHorizontal: 18, 
+    paddingVertical: 10, 
+    borderRadius: 22,
+    shadowColor: '#6C63FF',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25, 
+    shadowRadius: 8, 
+    elevation: 4,
   },
-  postBtnDisabled: { backgroundColor: '#D1D5DB', shadowOpacity: 0 },
-  postBtnText: { color: '#FFF', fontWeight: '700', fontSize: 14 },
+  postBtnDisabled: { 
+    backgroundColor: '#D1D5DB', 
+    shadowOpacity: 0 
+  },
+  postBtnText: { 
+    color: '#FFF', 
+    fontWeight: '700', 
+    fontSize: 14 
+  },
 
-  // Card
-  card: {
+  // Author Card
+  authorCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 24, margin: 16, padding: 18,
-    borderWidth: 1, borderColor: '#F0F0F8',
-    shadowColor: '#6C63FF', shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.07, shadowRadius: 16, elevation: 3,
+    borderRadius: 20,
+    marginHorizontal: 16,
+    marginTop: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E5E5EA',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
   },
-  cardFocused: { borderColor: '#6C63FF' },
-
-  // Author
-  authorRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 },
+  authorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
   avatar: {
-    width: 42, height: 42, borderRadius: 21,
-    alignItems: 'center', justifyContent: 'center', borderWidth: 1.5,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  avatarText: { fontSize: 17, fontWeight: '800' },
-  authorName: { fontSize: 14, fontWeight: '700', marginBottom: 2 },
+  tipsHeader: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: 8,
+  marginBottom: 16,
+},
+tipsEmoji: {
+  fontSize: 24,
+},
+  avatarText: {
+    fontSize: 20,
+    fontWeight: '800',
+  },
+  authorInfo: {
+    flex: 1,
+  },
+  authorName: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
   anonBadge: {
-    flexDirection: 'row', alignItems: 'center', gap: 3,
-    backgroundColor: '#F0FDF4', borderRadius: 8, borderWidth: 1, borderColor: '#BBF7D0',
-    paddingHorizontal: 6, paddingVertical: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
-  anonBadgeText: { fontSize: 10, fontWeight: '600', color: '#10B981' },
+  anonDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#10B981',
+  },
+  anonBadgeText: {
+    fontSize: 12,
+    color: '#8E8E93',
+    fontWeight: '500',
+  },
 
-  // Input
+  // Composer Card
+  composerCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    marginHorizontal: 16,
+    marginTop: 12,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: '#E5E5EA',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  composerCardFocused: {
+    borderColor: '#6C63FF',
+    borderWidth: 2,
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+  },
   input: {
-    fontSize: 16, color: '#111827', lineHeight: 24,
-    textAlignVertical: 'top', minHeight: 120, maxHeight: 220,
+    fontSize: 17,
+    color: '#1C1E21',
+    lineHeight: 24,
+    textAlignVertical: 'top',
+    minHeight: 120,
+    maxHeight: 200,
+  },
+  warningContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 12,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E5EA',
+  },
+  warningText: {
+    fontSize: 12,
+    fontWeight: '500',
   },
 
-  divider: { height: 1, backgroundColor: '#F5F5FA', marginVertical: 14 },
+  // Stats Card
+  statsCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    marginHorizontal: 16,
+    marginTop: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E5E5EA',
+  },
+  statsRow: {
+    gap: 12,
+  },
+  statItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  statIconBg: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statInfo: {
+    flex: 1,
+  },
+  statValue: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#6C63FF',
+  },
+  statLabel: {
+    fontSize: 11,
+    color: '#8E8E93',
+    fontWeight: '500',
+    marginTop: 2,
+  },
+  progressContainer: {
+    marginTop: 4,
+  },
+  progressBarBg: {
+    height: 4,
+    backgroundColor: '#E5E5EA',
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: 4,
+    borderRadius: 2,
+  },
 
-  // Footer
-  footer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  tipRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  tipText: { fontSize: 12, color: '#9CA3AF', fontWeight: '500' },
-  counterRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  progressRingWrap: { width: 22, height: 22, position: 'relative' },
-  progressRingBg: {
-    position: 'absolute', width: 22, height: 22, borderRadius: 11,
-    borderWidth: 2.5,
+  // Tips Section
+  tipsSection: {
+    marginHorizontal: 16,
+    marginTop: 20,
   },
-  progressRingFill: {
-    position: 'absolute', width: 22, height: 22, borderRadius: 11,
-    borderWidth: 2.5, borderTopColor: 'transparent', borderRightColor: 'transparent',
+  tipsTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#1C1E21',
+    marginBottom: 12,
   },
-  charCount: { fontSize: 13, fontWeight: '700', minWidth: 28, textAlign: 'right' },
-
-  // Tips Card
-  tipsCard: {
-    backgroundColor: '#FFFFFF', borderRadius: 20,
-    marginHorizontal: 16, marginTop: 4, padding: 16,
-    borderWidth: 1, borderColor: '#F0F0F8',
-    shadowColor: '#6C63FF', shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04, shadowRadius: 8, elevation: 1,
+  tipsGrid: {
+    flexDirection: 'row',
+    gap: 12,
   },
-  tipsRow: { flexDirection: 'row', justifyContent: 'space-around' },
-  tipItem: { alignItems: 'center', gap: 6 },
+  tipCard: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E5EA',
+  },
   tipIconWrap: {
-    width: 36, height: 36, borderRadius: 12,
-    backgroundColor: '#EEF2FF', alignItems: 'center', justifyContent: 'center',
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#F2F2F7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
   },
-  tipItemText: { fontSize: 11, color: '#9CA3AF', fontWeight: '600', textAlign: 'center' },
+  tipTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#1C1E21',
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  tipDesc: {
+    fontSize: 10,
+    color: '#8E8E93',
+    textAlign: 'center',
+    lineHeight: 14,
+  },
+
+  // Quote Card
+  quoteCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    marginHorizontal: 16,
+    marginTop: 16,
+    padding: 20,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E5EA',
+  },
+  quoteText: {
+    fontSize: 15,
+    color: '#8E8E93',
+    textAlign: 'center',
+    fontStyle: 'italic',
+    lineHeight: 22,
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  quoteAuthor: {
+    fontSize: 12,
+    color: '#C6C6C8',
+    fontWeight: '500',
+  },
 });

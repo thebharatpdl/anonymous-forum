@@ -1,10 +1,18 @@
 import { Tabs, useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
-import { View, TouchableOpacity, StyleSheet, Keyboard, Platform } from "react-native";
+import {
+  View,
+  TouchableOpacity,
+  StyleSheet,
+  Keyboard,
+  Platform,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export default function TabLayout() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [keyboardVisible, setKeyboardVisible] = useState(false);
 
   useEffect(() => {
@@ -14,12 +22,19 @@ export default function TabLayout() {
     const hide = Keyboard.addListener("keyboardDidHide", () =>
       setKeyboardVisible(false)
     );
-
     return () => {
       show.remove();
       hide.remove();
     };
   }, []);
+
+  // Bottom safe area: respect gesture bar / nav buttons.
+  // On Android with gesture nav this is 0, with 3-button nav it can be 24–48px.
+  // On iOS it's the home-indicator height (~34px on modern iPhones).
+  const safeBottom = insets.bottom;
+
+  // Total tab bar height = visible bar (64px) + safe area padding
+  const TAB_BAR_HEIGHT = 64 + safeBottom;
 
   return (
     <Tabs
@@ -31,7 +46,14 @@ export default function TabLayout() {
         tabBarStyle: keyboardVisible
           ? { display: "none" }
           : {
-              height: 64,
+              // Fixed height that includes the bottom safe area
+              height: TAB_BAR_HEIGHT,
+
+              // Push content up so icons sit in the visible 64px zone,
+              // not behind the system nav buttons
+              paddingBottom: safeBottom,
+              paddingTop: 8,
+
               borderTopWidth: 0,
               backgroundColor: "#FFFFFF",
               elevation: 12,
@@ -39,6 +61,8 @@ export default function TabLayout() {
               shadowOpacity: 0.08,
               shadowRadius: 16,
               shadowOffset: { width: 0, height: -4 },
+
+              // Keep absolute positioning but respect the inset
               position: "absolute",
               bottom: 0,
               left: 0,
@@ -60,11 +84,11 @@ export default function TabLayout() {
         }}
       />
 
-      {/* FLOATING CENTER BUTTON - Only show when keyboard is hidden */}
+      {/* FLOATING CENTER ADD BUTTON */}
       <Tabs.Screen
         name="add_post"
         options={{
-          tabBarButton: () => 
+          tabBarButton: () =>
             !keyboardVisible ? (
               <View style={styles.floatingContainer}>
                 <TouchableOpacity

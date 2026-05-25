@@ -38,6 +38,7 @@ export default function RootLayout() {
         <Stack.Screen name="chatlist" options={{ headerShown: false }} />
         <Stack.Screen name="notifications" options={{ headerShown: false }} />
         <Stack.Screen name="[id]" options={{ headerShown: false }} />
+            <Stack.Screen name="find-people" options={{ headerShown: false }} />
       </Stack>
       <StatusBar style="auto" />
     </Provider>

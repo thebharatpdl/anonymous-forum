@@ -32,24 +32,26 @@ const INITIAL_NUM_TO_RENDER = 8;
 const MAX_TO_RENDER_PER_BATCH = 10;
 const WINDOW_SIZE = 10;
 
+// Pill topics for the trending row
+// const TRENDING_TOPICS = ["anonymous", "confessions", "rant", "opinions", "advice", "stories"];
+
 export default function HomeScreen() {
   const dispatch = useAppDispatch();
   const router = useRouter();
   const { posts, loading, isConnected } = useAppSelector((state) => state.posts);
   const [refreshing, setRefreshing] = useState(false);
-  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [activeTopic, setActiveTopic] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
   const scrollY = useRef(new Animated.Value(0)).current;
+  const headerOpacity = useRef(new Animated.Value(1)).current;
 
-  // Keyboard
   useEffect(() => {
-    const show = Keyboard.addListener("keyboardDidShow", () => setIsKeyboardVisible(true));
-    const hide = Keyboard.addListener("keyboardDidHide", () => setIsKeyboardVisible(false));
+    const show = Keyboard.addListener("keyboardDidShow", () => {});
+    const hide = Keyboard.addListener("keyboardDidHide", () => {});
     return () => { show.remove(); hide.remove(); };
   }, []);
 
-  // Fetch unread notification count
   const fetchUnreadCount = useCallback(async () => {
     try {
       const token = await getToken();
@@ -64,26 +66,14 @@ export default function HomeScreen() {
     }
   }, []);
 
-  // Listen for real-time notifications
   useEffect(() => {
     fetchUnreadCount();
-    
-    const handleNewNotification = () => {
-      console.log("🔔 New notification received, updating badge");
-      fetchUnreadCount();
-    };
-    
+    const handleNewNotification = () => fetchUnreadCount();
     socketService.on("new_notification", handleNewNotification);
-    
-    return () => {
-      socketService.off("new_notification", handleNewNotification);
-    };
+    return () => { socketService.off("new_notification", handleNewNotification); };
   }, [fetchUnreadCount]);
 
-  const getCurrentUserId = useCallback(async () => {
-    return (await getUserId()) || "";
-  }, []);
-
+  const getCurrentUserId = useCallback(async () => (await getUserId()) || "", []);
   const handleNewPost = useCallback((p: Post) => dispatch(addNewPostRealtime(p)), [dispatch]);
   const handleLikeUpdate = useCallback((d: { postId: string; likes: number }) => dispatch(updateLikeRealtime(d)), [dispatch]);
   const handleConnect = useCallback(() => dispatch(setSocketConnected(true)), [dispatch]);
@@ -103,9 +93,7 @@ export default function HomeScreen() {
       socketService.on("like_updated", handleLikeUpdate);
       socketService.on("connect", handleConnect);
       socketService.on("disconnect", handleDisconnect);
-    } catch (e) {
-      console.log("Socket setup error:", e);
-    }
+    } catch (e) { console.log("Socket setup error:", e); }
   };
 
   const cleanupSocket = () => {
@@ -127,7 +115,7 @@ export default function HomeScreen() {
 
   const renderItem = useCallback(
     ({ item, index }: { item: Post; index: number }) => (
-      <View style={[styles.postWrap, index === 0 && { marginTop: 4 }]}>
+      <View style={[styles.postWrap, index === 0 && { marginTop: 6 }]}>
         <PostCard post={item} />
       </View>
     ),
@@ -136,54 +124,29 @@ export default function HomeScreen() {
 
   const keyExtractor = useCallback((item: Post) => item._id, []);
 
-  // Header shrink on scroll
-  const titleScale = scrollY.interpolate({
-    inputRange: [0, 60], outputRange: [1, 0.88], extrapolate: "clamp",
-  });
-  const titleTranslate = scrollY.interpolate({
-    inputRange: [0, 60], outputRange: [0, -4], extrapolate: "clamp",
-  });
+  // Header shrink
+  const titleScale = scrollY.interpolate({ inputRange: [0, 60], outputRange: [1, 0.9], extrapolate: "clamp" });
+  const titleTranslate = scrollY.interpolate({ inputRange: [0, 60], outputRange: [0, -3], extrapolate: "clamp" });
+  const headerBg = scrollY.interpolate({ inputRange: [0, 50], outputRange: ["#F5F5FB", "#FFFFFF"], extrapolate: "clamp" });
+  const headerBorder = scrollY.interpolate({ inputRange: [0, 50], outputRange: [0, 1], extrapolate: "clamp" });
 
   const Header = () => (
-    <View style={styles.header}>
-      <Animated.View style={{ transform: [{ scale: titleScale }, { translateY: titleTranslate }] }}>
-        <Text style={styles.headerTitle}>EchoVoice</Text>
-        <View style={styles.statusRow}>
-          <View style={[styles.statusDot, isConnected && styles.statusDotLive]} />
-          <Text style={styles.statusText}>
-            {isConnected ? "Live" : "Connecting"}
-          </Text>
-          <Text style={styles.statusSep}>·</Text>
-          <Text style={styles.statusText}>
-            {posts.length} {posts.length === 1 ? "post" : "posts"}
-          </Text>
+    <View style={styles.headerOuter}>
+      {/* Compose row */}
+      <TouchableOpacity
+        style={styles.composeBar}
+        onPress={() => router.push("/add_post")}
+        activeOpacity={0.85}
+      >
+        <View style={styles.composeAvatar}>
+          <Ionicons name="person-outline" size={16} color="#6C63FF" />
         </View>
-      </Animated.View>
+        <Text style={styles.composePlaceholder}>What's on your mind? (anonymous)</Text>
+        <View style={styles.composeFab}>
+          <Ionicons name="add" size={18} color="#FFFFFF" />
+        </View>
+      </TouchableOpacity>
 
-      <View style={styles.headerIcons}>
-        {/* Notification Bell with Real-time Badge */}
-        <TouchableOpacity
-          style={styles.iconBtn}
-          onPress={() => router.push("/notifications")}
-          activeOpacity={0.75}
-        >
-          <Ionicons name="heart-outline" size={22} color="#6C63FF" />
-          {unreadCount > 0 && (
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>{unreadCount > 99 ? "99+" : unreadCount}</Text>
-            </View>
-          )}
-        </TouchableOpacity>
-
-        {/* Chat Icon */}
-        <TouchableOpacity
-          style={styles.iconBtn}
-          onPress={() => router.push("/chatlist")}
-          activeOpacity={0.75}
-        >
-          <MaterialCommunityIcons name="chat-processing-outline" size={23} color="#6C63FF" />
-        </TouchableOpacity>
-      </View>
     </View>
   );
 
@@ -197,11 +160,12 @@ export default function HomeScreen() {
     return (
       <View style={styles.center}>
         <View style={styles.emptyIconWrap}>
-          <Ionicons name="newspaper-outline" size={40} color="#6C63FF" />
+          <Ionicons name="newspaper-outline" size={36} color="#6C63FF" />
         </View>
         <Text style={styles.emptyTitle}>Nothing here yet</Text>
         <Text style={styles.emptySub}>Be the first to share something anonymous</Text>
-        <TouchableOpacity style={styles.emptyBtn} onPress={() => router.push("/add_post")}>
+        <TouchableOpacity style={styles.emptyBtn} onPress={() => router.push("/add_post")} activeOpacity={0.85}>
+          <Ionicons name="add-circle-outline" size={16} color="#FFFFFF" />
           <Text style={styles.emptyBtnText}>Create Post</Text>
         </TouchableOpacity>
       </View>
@@ -221,20 +185,57 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
-      <StatusBar barStyle="dark-content" backgroundColor="#F7F7FC" />
-      <Header />
+      <StatusBar barStyle="dark-content" backgroundColor="#F5F5FB" />
+
+      {/* Sticky top bar */}
+      <Animated.View style={[styles.stickyBar, { backgroundColor: headerBg, borderBottomWidth: headerBorder, borderBottomColor: "#EBEBF5" }]}>
+        <Animated.View style={{ transform: [{ scale: titleScale }, { translateY: titleTranslate }] }}>
+          <Text style={styles.appTitle}>
+            Wh<Text style={styles.appTitleAccent}>i</Text>spr
+          </Text>
+          <View style={styles.statusRow}>
+            <View style={[styles.statusDot, isConnected && styles.statusDotLive]} />
+            <Text style={styles.statusText}>{isConnected ? "Live" : "Connecting"}</Text>
+          </View>
+        </Animated.View>
+
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={styles.iconBtn}
+            onPress={() => router.push("/notifications")}
+            activeOpacity={0.75}
+          >
+            <Ionicons name="heart-outline" size={21} color="#6C63FF" />
+            {unreadCount > 0 && (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>{unreadCount > 99 ? "99+" : unreadCount}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.iconBtn}
+            onPress={() => router.push("/chatlist")}
+            activeOpacity={0.75}
+          >
+            <MaterialCommunityIcons name="chat-processing-outline" size={22} color="#6C63FF" />
+          </TouchableOpacity>
+        </View>
+      </Animated.View>
+
       <Animated.FlatList
         ref={flatListRef}
         data={posts}
         keyExtractor={keyExtractor}
         renderItem={renderItem}
+        ListHeaderComponent={Header}
         ListEmptyComponent={Empty}
         ListFooterComponent={Footer}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
         onScroll={Animated.event(
           [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-          { useNativeDriver: true }
+          { useNativeDriver: false }
         )}
         scrollEventThrottle={16}
         refreshControl={
@@ -257,82 +258,133 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#F7F7FC" },
+  safe: { flex: 1, backgroundColor: "#F5F5FB" },
 
-  // Header
-  header: {
+  // Sticky bar
+  stickyBar: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 14,
-    backgroundColor: "#F7F7FC",
-    borderBottomWidth: 1,
-    borderBottomColor: "#EBEBF5",
+    paddingTop: 10,
+    paddingBottom: 12,
+    backgroundColor: "#F5F5FB",
   },
-  headerTitle: {
-    fontSize: 30,
+  appTitle: {
+    fontSize: 28,
     fontWeight: "800",
-    color: "#000000",
-    letterSpacing: -0.8,
-    marginBottom: 4,
+    color: "#111827",
+    letterSpacing: -1,
+    marginBottom: 2,
   },
+  appTitleAccent: { color: "#6C63FF" },
   statusRow: { flexDirection: "row", alignItems: "center", gap: 5 },
   statusDot: {
-    width: 7, height: 7, borderRadius: 4,
+    width: 6, height: 6, borderRadius: 3,
     backgroundColor: "#D1D5DB",
   },
   statusDotLive: {
     backgroundColor: "#10B981",
-    shadowColor: "#10B981",
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6,
-    shadowRadius: 4,
-    elevation: 2,
   },
-  statusText: { fontSize: 12, color: "#9CA3AF", fontWeight: "500" },
-  statusSep: { fontSize: 12, color: "#D1D5DB" },
-
-  headerIcons: { flexDirection: "row", gap: 10 },
+  statusText: { fontSize: 11, color: "#9CA3AF", fontWeight: "600", letterSpacing: 0.3 },
+  headerActions: { flexDirection: "row", gap: 8 },
   iconBtn: {
-    width: 44, height: 44, borderRadius: 22,
+    width: 42, height: 42, borderRadius: 14,
     backgroundColor: "#FFFFFF",
     alignItems: "center", justifyContent: "center",
     borderWidth: 1, borderColor: "#EBEBF5",
-    shadowColor: "#6C63FF",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.07,
-    shadowRadius: 8,
-    elevation: 2,
     position: "relative",
   },
   badge: {
-    position: "absolute", top: -3, right: -3,
-    backgroundColor: "#F43F5E",
-    borderRadius: 9, minWidth: 18, height: 18,
+    position: "absolute", top: -4, right: -4,
+    backgroundColor: "#EF4444",
+    borderRadius: 9, minWidth: 17, height: 17,
     alignItems: "center", justifyContent: "center",
-    paddingHorizontal: 4,
-    borderWidth: 2, borderColor: "#F7F7FC",
+    paddingHorizontal: 3,
+    borderWidth: 2, borderColor: "#F5F5FB",
   },
-  badgeText: { color: "#FFFFFF", fontSize: 10, fontWeight: "800" },
+  badgeText: { color: "#FFFFFF", fontSize: 9, fontWeight: "800" },
+
+  // Header inner sections
+  headerOuter: { paddingTop: 8 },
+
+  composeBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginHorizontal: 16,
+    marginBottom: 18,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#EBEBF5",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  composeAvatar: {
+    width: 32, height: 32, borderRadius: 10,
+    backgroundColor: "#EEF2FF",
+    alignItems: "center", justifyContent: "center",
+    flexShrink: 0,
+  },
+  composePlaceholder: { flex: 1, fontSize: 14, color: "#C4C4D4", fontWeight: "500" },
+  composeFab: {
+    width: 30, height: 30, borderRadius: 9,
+    backgroundColor: "#6C63FF",
+    alignItems: "center", justifyContent: "center",
+    flexShrink: 0,
+  },
+
+  sectionRow: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    paddingHorizontal: 20, marginBottom: 10,
+  },
+  sectionLabel: {
+    fontSize: 10, fontWeight: "700", color: "#C4C4D4", letterSpacing: 1,
+  },
+  liveDot: {
+    width: 6, height: 6, borderRadius: 3, backgroundColor: "#D1D5DB", marginLeft: 4,
+  },
+  liveDotActive: { backgroundColor: "#10B981" },
+  liveText: { fontSize: 11, color: "#9CA3AF", fontWeight: "600" },
+
+  topicRow: { paddingHorizontal: 16, gap: 8, paddingBottom: 4 },
+  topicPill: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1, borderColor: "#EBEBF5",
+    borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6,
+  },
+  topicPillActive: {
+    backgroundColor: "#6C63FF", borderColor: "#6C63FF",
+  },
+  topicText: { fontSize: 12, color: "#6B7280", fontWeight: "600" },
+  topicTextActive: { color: "#FFFFFF" },
+
+  dividerRow: { paddingHorizontal: 16, marginTop: 16, marginBottom: 6 },
+  thinDivider: { height: 1, backgroundColor: "#F0F0F8" },
+  feedLabel: {
+    fontSize: 10, fontWeight: "700", color: "#C4C4D4",
+    letterSpacing: 1, paddingHorizontal: 20, marginBottom: 4,
+  },
 
   // List
-  listContent: { paddingHorizontal: 14, paddingTop: 8, paddingBottom: 90, flexGrow: 1 },
-  postWrap: { marginBottom: 12 },
+  listContent: { paddingHorizontal: 14, paddingBottom: 100, flexGrow: 1 },
+  postWrap: { marginBottom: 10 },
 
   // Empty
-  center: { alignItems: "center", justifyContent: "center", paddingTop: 80, paddingHorizontal: 32, flex: 1 },
+  center: { alignItems: "center", justifyContent: "center", paddingTop: 72, paddingHorizontal: 32, flex: 1 },
   emptyIconWrap: {
-    width: 80, height: 80, borderRadius: 24,
+    width: 76, height: 76, borderRadius: 22,
     backgroundColor: "#EEF2FF",
     alignItems: "center", justifyContent: "center", marginBottom: 16,
   },
-  emptyTitle: { fontSize: 19, fontWeight: "700", color: "#111827", marginBottom: 6 },
+  emptyTitle: { fontSize: 18, fontWeight: "700", color: "#111827", marginBottom: 6 },
   emptySub: { fontSize: 14, color: "#9CA3AF", textAlign: "center", lineHeight: 20, marginBottom: 24 },
   emptyBtn: {
-    backgroundColor: "#6C63FF", paddingHorizontal: 28,
-    paddingVertical: 13, borderRadius: 22,
+    flexDirection: "row", alignItems: "center", gap: 7,
+    backgroundColor: "#6C63FF", paddingHorizontal: 24,
+    paddingVertical: 12, borderRadius: 14,
   },
   emptyBtnText: { color: "#FFFFFF", fontWeight: "700", fontSize: 14 },
   loadingText: { marginTop: 14, color: "#9CA3AF", fontSize: 14, fontWeight: "500" },
@@ -340,5 +392,5 @@ const styles = StyleSheet.create({
   // Footer
   footer: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 28, paddingHorizontal: 24 },
   footerLine: { flex: 1, height: 1, backgroundColor: "#EBEBF5" },
-  footerText: { fontSize: 12, color: "#C4C4D4", fontWeight: "600" },
+  footerText: { fontSize: 11, color: "#C4C4D4", fontWeight: "600", letterSpacing: 0.5 },
 });
