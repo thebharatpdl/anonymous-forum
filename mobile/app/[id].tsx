@@ -17,7 +17,7 @@ import { followUserAsync, unfollowUserAsync } from '../src/redux/postsSlice';
 import PostCard from '../components/PostCard';
 import { Post } from '../src/redux/postsSlice';
 
-const API_URL = 'http://192.168.1.69:5000/api';
+import { API_URL } from '../src/config';
 
 type UserProfile = {
   id: string;

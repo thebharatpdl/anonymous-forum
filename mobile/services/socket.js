@@ -1,5 +1,5 @@
 import io from 'socket.io-client';
-import { API_URL } from '../src/config';
+import { SOCKET_URL } from '../src/config';
 
 class SocketService {
   constructor() {
@@ -18,12 +18,11 @@ class SocketService {
       this.socket = null;
     }
 
-    const BASE_URL = API_URL.replace('/api/posts', '');
-    console.log('Connecting to socket at:', BASE_URL, 'as user:', userId);
+    console.log('Connecting to socket at:', SOCKET_URL, 'as user:', userId);
 
     this.userId = userId;
 
-    this.socket = io(BASE_URL, {
+    this.socket = io(SOCKET_URL, {
       transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionAttempts: 5,

@@ -14,7 +14,6 @@ import {
   Modal,
   Alert,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAppSelector, useAppDispatch } from '../../src/redux/hooks';
@@ -23,9 +22,10 @@ import { getCurrentUser, User, logout, getToken } from '../../services/authServi
 import EditProfileModal from '../../components/EditProfileModal';
 import PostCard from '../../components/PostCard';
 import { Post } from '../../src/redux/postsSlice';
+import axios from 'axios';
+import { API_URL } from '../../src/config';
 
 const { width, height } = Dimensions.get('window');
-const API_URL = 'http://192.168.1.69:5000/api';
 
 function getGradient(name: string): [string, string, string] {
   const palettes: [string, string, string][] = [
@@ -51,7 +51,6 @@ function StatItem({ value, label, onPress }: { value: number; label: string; onP
   );
 }
 
-// Three Dots Menu Component
 const ThreeDotsMenu = ({ visible, onClose, onEditProfile, onShare, onLogout, colors }: any) => {
   const slideAnim = useRef(new Animated.Value(300)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -109,7 +108,6 @@ const ThreeDotsMenu = ({ visible, onClose, onEditProfile, onShare, onLogout, col
   );
 };
 
-// Followers/Following Modal
 const FollowModal = ({ visible, onClose, title, users, colors }: any) => {
   return (
     <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose}>
@@ -151,6 +149,7 @@ export default function ProfileScreen() {
   const router = useRouter();
   const dispatch = useAppDispatch();
   const { posts } = useAppSelector((state) => state.posts);
+
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [editModalVisible, setEditModalVisible] = useState(false);
@@ -173,17 +172,29 @@ export default function ProfileScreen() {
       setCurrentUser(user);
 
       const token = await getToken();
-      const [followersRes, followingRes] = await Promise.all([
-        fetch(`${API_URL}/users/followers/${user.id}`, { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`${API_URL}/users/following/${user.id}`, { headers: { Authorization: `Bearer ${token}` } }),
-      ]);
-      const followersData = await followersRes.json();
-      const followingData = await followingRes.json();
-      
-      setFollowersCount(followersData.count || followersData.followers?.length || 0);
-      setFollowingCount(followingData.count || followingData.following?.length || 0);
-      setFollowersList(followersData.followers || []);
-      setFollowingList(followingData.following || []);
+
+      try {
+        const followersRes = await axios.get(`${API_URL}/users/followers/${user.id}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const followersData = followersRes.data;
+        setFollowersCount(followersData.count || followersData.followers?.length || 0);
+        setFollowersList(followersData.followers || []);
+      } catch (e: any) {
+        console.log('Followers fetch failed:', e.response?.status || e.message);
+      }
+
+      try {
+        const followingRes = await axios.get(`${API_URL}/users/following/${user.id}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const followingData = followingRes.data;
+        setFollowingCount(followingData.count || followingData.following?.length || 0);
+        setFollowingList(followingData.following || []);
+      } catch (e: any) {
+        console.log('Following fetch failed:', e.response?.status || e.message);
+      }
+
     } catch (error) {
       console.error('Error loading profile data:', error);
     } finally {
@@ -191,32 +202,46 @@ export default function ProfileScreen() {
     }
   }, []);
 
-  useFocusEffect(
-    useCallback(() => {
-      loadAllData();
-      if (activeTab === 1) fetchSavedPosts();
-    }, [activeTab])
-  );
-
-  const fetchSavedPosts = async () => {
+  const loadSavedPosts = useCallback(async () => {
     setSavedLoading(true);
     try {
       const token = await getToken();
-      const response = await fetch(`${API_URL}/posts/saved`, {
-        headers: { Authorization: `Bearer ${token}` },
+      if (!token) {
+        setSavedPosts([]);
+        return;
+      }
+
+      const res = await axios.get(`${API_URL}/posts/saved`, {
+        headers: { Authorization: `Bearer ${token}` }
       });
-      const data = await response.json();
-      setSavedPosts(data);
-    } catch (error) {
-      console.error('Error fetching saved posts:', error);
+
+      let postsArray: Post[] = [];
+      if (Array.isArray(res.data)) {
+        postsArray = res.data;
+      } else if (res.data.posts) {
+        postsArray = res.data.posts;
+      }
+
+      setSavedPosts(postsArray);
+
+    } catch (error: any) {
+      console.error('Failed to load saved posts:', error.response?.status);
+      setSavedPosts([]);
     } finally {
       setSavedLoading(false);
     }
-  };
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadAllData();
+      loadSavedPosts();
+    }, [loadAllData, loadSavedPosts])
+  );
 
   const handleTabSwitch = (idx: number) => {
     setActiveTab(idx);
-    if (idx === 1) fetchSavedPosts();
+    if (idx === 1) loadSavedPosts();
   };
 
   const handleShowFollowers = () => {
@@ -266,23 +291,21 @@ export default function ProfileScreen() {
   return (
     <View style={styles.root}>
       <StatusBar barStyle="dark-content" backgroundColor="#F5F5FB" />
-      
-      {/* STICKY TOP BAR */}
+
       <View style={[styles.stickyTopBar, { backgroundColor: '#FFFFFF' }]}>
         <View style={styles.stickyHeaderCenter}>
           <Text style={styles.stickyUsername}>
             @{(currentUser?.anonymousName || 'anonymous').toLowerCase()}
           </Text>
         </View>
-        <TouchableOpacity 
-          style={styles.stickyMenuButton} 
+        <TouchableOpacity
+          style={styles.stickyMenuButton}
           onPress={() => setMenuVisible(true)}
         >
           <Ionicons name="ellipsis-horizontal" size={22} color="#000000" />
         </TouchableOpacity>
       </View>
 
-      {/* Scrollable Content - PUSHED UP */}
       <FlatList
         data={data}
         keyExtractor={(item) => item._id}
@@ -295,12 +318,8 @@ export default function ProfileScreen() {
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={
           <>
-            {/* Hero banner - VERY SMALL */}
             <View style={[styles.banner, { backgroundColor: colors[0] + '12' }]} />
-
-            {/* Profile card - PUSHED UP */}
             <View style={styles.profileCard}>
-              {/* Avatar */}
               <View style={styles.avatarWrap}>
                 <LinearGradient colors={colors} style={styles.avatarRing} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
                   <View style={styles.avatarInner}>
@@ -311,11 +330,7 @@ export default function ProfileScreen() {
                 </LinearGradient>
                 <View style={styles.onlineBadge} />
               </View>
-
-              {/* Name */}
               <Text style={styles.name}>{currentUser?.anonymousName || 'Anonymous'}</Text>
-
-              {/* Bio */}
               {currentUser?.bio ? (
                 <Text style={styles.bio}>{currentUser.bio}</Text>
               ) : (
@@ -323,14 +338,10 @@ export default function ProfileScreen() {
                   <Text style={styles.bioEmpty}>+ Add a bio</Text>
                 </TouchableOpacity>
               )}
-
-              {/* Anonymous ID chip */}
               <TouchableOpacity style={[styles.idChip, { backgroundColor: colors[0] + '08', borderColor: colors[0] + '20' }]} activeOpacity={0.7}>
                 <Ionicons name="finger-print-outline" size={11} color="#9CA3AF" />
                 <Text style={styles.idText}>ID · {currentUser?.id?.slice(-10).toUpperCase() || '----------'}</Text>
               </TouchableOpacity>
-
-              {/* Stats */}
               <View style={styles.statsRow}>
                 <StatItem value={myPosts.length} label="Posts" />
                 <View style={styles.statDivider} />
@@ -339,21 +350,19 @@ export default function ProfileScreen() {
                 <StatItem value={followingCount} label="Following" onPress={handleShowFollowing} />
               </View>
             </View>
-
-            {/* Tab bar */}
             <View style={styles.tabBar}>
-              <TouchableOpacity 
-                style={[styles.tab, activeTab === 0 && styles.activeTab]} 
-                onPress={() => handleTabSwitch(0)} 
+              <TouchableOpacity
+                style={[styles.tab, activeTab === 0 && styles.activeTab]}
+                onPress={() => handleTabSwitch(0)}
                 activeOpacity={0.8}
               >
                 <Ionicons name="apps-outline" size={15} color={activeTab === 0 ? colors[0] : '#D1D5DB'} />
                 <Text style={[styles.tabText, activeTab === 0 && { color: colors[0] }]}>Posts</Text>
                 {activeTab === 0 && <View style={[styles.activeTabIndicator, { backgroundColor: colors[0] }]} />}
               </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.tab, activeTab === 1 && styles.activeTab]} 
-                onPress={() => handleTabSwitch(1)} 
+              <TouchableOpacity
+                style={[styles.tab, activeTab === 1 && styles.activeTab]}
+                onPress={() => handleTabSwitch(1)}
                 activeOpacity={0.8}
               >
                 <Ionicons name="bookmark-outline" size={15} color={activeTab === 1 ? colors[0] : '#D1D5DB'} />
@@ -391,7 +400,7 @@ export default function ProfileScreen() {
                 <Ionicons name="bookmark-outline" size={36} color={colors[0]} />
               </View>
               <Text style={styles.emptyTitle}>No saved posts</Text>
-              <Text style={styles.emptySub}>Posts you save will appear here</Text>
+              <Text style={styles.emptySub}>Save posts to see them here</Text>
             </View>
           )
         }
@@ -424,389 +433,118 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: '#F5F5FB',
-  },
-  loaderWrap: { 
-    flex: 1, 
-    alignItems: 'center', 
-    justifyContent: 'center', 
-    backgroundColor: '#F5F5FB' 
-  },
-  centerContent: { 
-    alignItems: 'center', 
-    justifyContent: 'center', 
-    paddingVertical: 60 
-  },
-  emptyText: { 
-    marginTop: 12, 
-    color: '#9CA3AF', 
-    fontSize: 14 
-  },
-
-  // STICKY TOP BAR
+  root: { flex: 1, backgroundColor: '#F5F5FB' },
+  loaderWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F5F5FB' },
+  centerContent: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60 },
+  emptyText: { marginTop: 12, color: '#9CA3AF', fontSize: 14 },
   stickyTopBar: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 100,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
+    position: 'absolute', top: 0, left: 0, right: 0, zIndex: 100,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end',
     paddingHorizontal: 16,
     paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 50,
-    paddingBottom: 8,
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    paddingBottom: 8, backgroundColor: '#FFFFFF',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05, shadowRadius: 4, elevation: 2,
   },
-  stickyHeaderCenter: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  stickyUsername: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#000000',
-    letterSpacing: 0.3,
-  },
+  stickyHeaderCenter: { flex: 1, alignItems: 'center' },
+  stickyUsername: { fontSize: 16, fontWeight: '600', color: '#000000', letterSpacing: 0.3 },
   stickyMenuButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#F5F5F5',
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: '#F5F5F5', alignItems: 'center', justifyContent: 'center',
   },
-
-  // Scrollable Content - MINIMAL TOP PADDING
   scrollableContent: {
     paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 40) + 5 : 95,
     paddingBottom: 100,
   },
-
-  // Banner - VERY SMALL
-  banner: { 
-    height: 60, 
-    overflow: 'hidden',
-    position: 'relative',
-    marginTop: 0,
-  },
-
-  // Profile card - MINIMAL PADDING, PUSHED UP
+  banner: { height: 60, overflow: 'hidden', position: 'relative', marginTop: 0 },
   profileCard: {
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: 14,
-    marginTop: -22,
-    borderRadius: 18,
-    padding: 12,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#F0F0F8',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 2,
+    backgroundColor: '#FFFFFF', marginHorizontal: 14, marginTop: -22,
+    borderRadius: 18, padding: 12, alignItems: 'center',
+    borderWidth: 1, borderColor: '#F0F0F8',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04, shadowRadius: 6, elevation: 2,
   },
-
-  // Avatar - SMALL
-  avatarWrap: { 
-    marginBottom: 6, 
-    position: 'relative' 
-  },
-  avatarRing: { 
-    width: 60, 
-    height: 60, 
-    borderRadius: 18, 
-    padding: 2, 
-    alignItems: 'center', 
-    justifyContent: 'center' 
-  },
-  avatarInner: { 
-    width: 56, 
-    height: 56, 
-    borderRadius: 16, 
-    backgroundColor: '#FFFFFF', 
-    alignItems: 'center', 
-    justifyContent: 'center' 
-  },
-  avatarLetter: { 
-    fontSize: 24, 
-    fontWeight: '800' 
-  },
+  avatarWrap: { marginBottom: 6, position: 'relative' },
+  avatarRing: { width: 60, height: 60, borderRadius: 18, padding: 2, alignItems: 'center', justifyContent: 'center' },
+  avatarInner: { width: 56, height: 56, borderRadius: 16, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
+  avatarLetter: { fontSize: 24, fontWeight: '800' },
   onlineBadge: {
-    position: 'absolute', 
-    bottom: 1, 
-    right: 1,
-    width: 10, 
-    height: 10, 
-    borderRadius: 5,
-    backgroundColor: '#10B981', 
-    borderWidth: 1.5, 
-    borderColor: '#FFFFFF',
+    position: 'absolute', bottom: 1, right: 1, width: 10, height: 10,
+    borderRadius: 5, backgroundColor: '#10B981', borderWidth: 1.5, borderColor: '#FFFFFF',
   },
-
-  // Name - SMALL
-  name: { 
-    fontSize: 16, 
-    fontWeight: '700', 
-    color: '#111827', 
-    marginBottom: 3 
-  },
-  bio: { 
-    fontSize: 11, 
-    color: '#4B5563', 
-    lineHeight: 16, 
-    textAlign: 'center', 
-    marginBottom: 6, 
-    paddingHorizontal: 6 
-  },
-  bioEmpty: { 
-    fontSize: 11, 
-    color: '#C4C4D4', 
-    fontStyle: 'italic', 
-    marginBottom: 6 
-  },
-
-  // ID Chip - SMALL
+  name: { fontSize: 16, fontWeight: '700', color: '#111827', marginBottom: 3 },
+  bio: { fontSize: 11, color: '#4B5563', lineHeight: 16, textAlign: 'center', marginBottom: 6, paddingHorizontal: 6 },
+  bioEmpty: { fontSize: 11, color: '#C4C4D4', fontStyle: 'italic', marginBottom: 6 },
   idChip: {
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    gap: 4,
-    paddingHorizontal: 8, 
-    paddingVertical: 4,
-    borderRadius: 14, 
-    borderWidth: 1, 
-    marginBottom: 10,
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 8, paddingVertical: 4, borderRadius: 14,
+    borderWidth: 1, marginBottom: 10,
   },
-  idText: { 
-    fontSize: 9, 
-    color: '#9CA3AF', 
-    fontFamily: 'monospace', 
-    fontWeight: '600' 
-  },
-
-  // Stats - COMPACT
+  idText: { fontSize: 9, color: '#9CA3AF', fontFamily: 'monospace', fontWeight: '600' },
   statsRow: {
-    flexDirection: 'row', 
-    width: '100%',
-    backgroundColor: '#F9FAFB', 
-    borderRadius: 12,
-    paddingVertical: 8, 
-    marginBottom: 0,
-    borderWidth: 1, 
-    borderColor: '#F0F0F8',
+    flexDirection: 'row', width: '100%', backgroundColor: '#F9FAFB',
+    borderRadius: 12, paddingVertical: 8, marginBottom: 0,
+    borderWidth: 1, borderColor: '#F0F0F8',
   },
-  statItem: { 
-    flex: 1, 
-    alignItems: 'center' 
-  },
-  statNumber: { 
-    fontSize: 15, 
-    fontWeight: '800', 
-    color: '#111827', 
-    marginBottom: 1 
-  },
-  statLabel: { 
-    fontSize: 9, 
-    color: '#9CA3AF', 
-    fontWeight: '600', 
-    letterSpacing: 0.4, 
-    textTransform: 'uppercase' 
-  },
-  statDivider: { 
-    width: 1, 
-    backgroundColor: '#EBEBF5', 
-    marginVertical: 4 
-  },
-
-  // Tabs - COMPACT
+  statItem: { flex: 1, alignItems: 'center' },
+  statNumber: { fontSize: 15, fontWeight: '800', color: '#111827', marginBottom: 1 },
+  statLabel: { fontSize: 9, color: '#9CA3AF', fontWeight: '600', letterSpacing: 0.4, textTransform: 'uppercase' },
+  statDivider: { width: 1, backgroundColor: '#EBEBF5', marginVertical: 4 },
   tabBar: {
-    flexDirection: 'row',
-    marginHorizontal: 14,
-    marginTop: 12,
-    marginBottom: 10,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#F0F0F8',
-    overflow: 'hidden',
+    flexDirection: 'row', marginHorizontal: 14, marginTop: 12, marginBottom: 10,
+    backgroundColor: '#FFFFFF', borderRadius: 12, borderWidth: 1,
+    borderColor: '#F0F0F8', overflow: 'hidden',
   },
   tab: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 5,
-    paddingVertical: 10,
-    position: 'relative',
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 5, paddingVertical: 10, position: 'relative',
   },
-  activeTab: {
-    backgroundColor: '#F9FAFB',
-  },
+  activeTab: { backgroundColor: '#F9FAFB' },
   activeTabIndicator: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 2.5,
-    borderTopLeftRadius: 2,
-    borderTopRightRadius: 2,
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    height: 2.5, borderTopLeftRadius: 2, borderTopRightRadius: 2,
   },
-  tabText: { 
-    fontSize: 12, 
-    fontWeight: '600', 
-    color: '#D1D5DB' 
+  tabText: { fontSize: 12, fontWeight: '600', color: '#D1D5DB' },
+  emptyState: { alignItems: 'center', paddingVertical: 48, paddingHorizontal: 40 },
+  emptyIconWrap: {
+    width: 84, height: 84, borderRadius: 26, alignItems: 'center',
+    justifyContent: 'center', marginBottom: 16,
   },
-
-  // Empty states
-  emptyState: { 
-    alignItems: 'center', 
-    paddingVertical: 48, 
-    paddingHorizontal: 40 
-  },
-  emptyIconWrap: { 
-    width: 84, 
-    height: 84, 
-    borderRadius: 26, 
-    alignItems: 'center', 
-    justifyContent: 'center', 
-    marginBottom: 16 
-  },
-  emptyTitle: { 
-    fontSize: 17, 
-    fontWeight: '700', 
-    color: '#111827', 
-    marginBottom: 6 
-  },
-  emptySub: { 
-    fontSize: 13, 
-    color: '#9CA3AF', 
-    textAlign: 'center', 
-    lineHeight: 19, 
-    marginBottom: 20 
-  },
+  emptyTitle: { fontSize: 17, fontWeight: '700', color: '#111827', marginBottom: 6 },
+  emptySub: { fontSize: 13, color: '#9CA3AF', textAlign: 'center', lineHeight: 19, marginBottom: 20 },
   emptyBtn: {
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    gap: 7,
-    paddingHorizontal: 24, 
-    paddingVertical: 12, 
-    borderRadius: 22,
+    flexDirection: 'row', alignItems: 'center', gap: 7,
+    paddingHorizontal: 24, paddingVertical: 12, borderRadius: 22,
   },
-  emptyBtnText: { 
-    color: '#fff', 
-    fontWeight: '700', 
-    fontSize: 14 
-  },
-
-  // Three Dots Menu
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'flex-end',
-  },
+  emptyBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
   menuContainer: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    backgroundColor: '#FFFFFF', borderTopLeftRadius: 24, borderTopRightRadius: 24,
     paddingBottom: Platform.OS === 'ios' ? 34 : 20,
   },
   menuHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 20, paddingVertical: 16,
   },
-  menuTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#1C1E21',
-  },
-  menuDivider: {
-    height: 1,
-    backgroundColor: '#F0F0F8',
-  },
-  menuItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    gap: 14,
-  },
-  menuIconBg: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  menuLabel: {
-    flex: 1,
-    fontSize: 16,
-    fontWeight: '500',
-  },
-
-  // Follow Modal
+  menuTitle: { fontSize: 18, fontWeight: '700', color: '#1C1E21' },
+  menuDivider: { height: 1, backgroundColor: '#F0F0F8' },
+  menuItem: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 16, gap: 14 },
+  menuIconBg: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  menuLabel: { flex: 1, fontSize: 16, fontWeight: '500' },
   followModalContainer: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    marginTop: 100,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    flex: 1, backgroundColor: '#FFFFFF', marginTop: 100,
+    borderTopLeftRadius: 24, borderTopRightRadius: 24,
   },
   followModalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 20, paddingVertical: 16,
   },
-  followModalTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#1C1E21',
-  },
-  followModalDivider: {
-    height: 1,
-    backgroundColor: '#F0F0F8',
-  },
-  followUserItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    gap: 14,
-  },
-  followAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  followAvatarText: {
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  followUserName: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#1C1E21',
-  },
-  followEmpty: {
-    alignItems: 'center',
-    paddingVertical: 40,
-  },
-  followEmptyText: {
-    fontSize: 14,
-    color: '#8E8E93',
-  },
+  followModalTitle: { fontSize: 18, fontWeight: '700', color: '#1C1E21' },
+  followModalDivider: { height: 1, backgroundColor: '#F0F0F8' },
+  followUserItem: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 14, gap: 14 },
+  followAvatar: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
+  followAvatarText: { fontSize: 18, fontWeight: '700' },
+  followUserName: { fontSize: 16, fontWeight: '500', color: '#1C1E21' },
+  followEmpty: { alignItems: 'center', paddingVertical: 40 },
+  followEmptyText: { fontSize: 14, color: '#8E8E93' },
 });

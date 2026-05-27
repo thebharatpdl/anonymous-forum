@@ -27,6 +27,7 @@ import {
 import PostCard from "../../components/PostCard";
 import socketService from "../../services/socket";
 import { getUserId, getToken } from "../../services/authService";
+import { API_URL } from '../../constants/api';
 
 const INITIAL_NUM_TO_RENDER = 8;
 const MAX_TO_RENDER_PER_BATCH = 10;
@@ -56,8 +57,10 @@ export default function HomeScreen() {
     try {
       const token = await getToken();
       if (!token) return;
-      const response = await fetch("http://192.168.1.69:5000/api/notifications/unread-count", {
-        headers: { Authorization: `Bearer ${token}` },
+
+// then:
+const response = await fetch(`${API_URL}/notifications/unread-count`, {
+          headers: { Authorization: `Bearer ${token}` },
       });
       const data = await response.json();
       setUnreadCount(data.count || 0);

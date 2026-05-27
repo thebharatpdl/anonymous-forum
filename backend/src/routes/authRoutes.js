@@ -4,14 +4,23 @@ const User = require("../models/User");
 const generateToken = require("../utils/generateToken");
 const { protect } = require("../middleware/authMiddleware");
 
+// ✅ IMPROVED NAME GENERATOR - More combinations, shorter names
 const generateAnonymousName = () => {
-  const prefixes = ["Silent", "Hidden", "Shadow", "Ghost", "Mystic", "Cosmic", "Dark", "Light"];
-  const suffixes = ["Wolf", "Fox", "Owl", "Cat", "Bird", "Star", "Moon", "Cloud"];
-  const numbers = Math.floor(Math.random() * 9000) + 1000;
+  const prefixes = ["Neo", "Kai", "Rex", "Zed", "Ash", "Vex", "Jax", "Lux", "Nyx", "Zen"];
+  const suffixes = ["Fox", "Cat", "Ace", "Zen", "Max", "Sky", "Nox", "Rex", "Dex", "Kai"];
+  const numbers = Math.floor(Math.random() * 100); 
+  
   const prefix = prefixes[Math.floor(Math.random() * prefixes.length)];
   const suffix = suffixes[Math.floor(Math.random() * suffixes.length)];
+  
+  // ✅ Allow mixing: prefix and suffix can be same word (e.g., KaiKai, RexRex)
   return `${prefix}${suffix}_${numbers}`;
 };
+
+// Examples of possible names:
+// NeoFox_42, KaiZen_7, RexAce_156, ZedMax_893
+// VexNox_44, JaxSky_12, LuxDex_777, NyxCat_0
+// KaiKai_99, RexRex_420, ZenZen_1 (same prefix+suffix allowed)
 
 // ✅ GET ALL USERS (for People tab)
 router.get("/users", async (req, res) => {
@@ -33,7 +42,6 @@ router.get("/users", async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-
 
 // Get user by ID (for profile viewing)
 router.get("/user/:id", protect, async (req, res) => {
@@ -101,7 +109,7 @@ router.post("/push-token/remove", protect, async (req, res) => {
   }
 });
 
-// ✅ ANONYMOUS REGISTER - Added bio field
+// ✅ ANONYMOUS REGISTER
 router.post("/anonymous/register", async (req, res) => {
   try {
     const timestamp = Date.now();
@@ -114,7 +122,7 @@ router.post("/anonymous/register", async (req, res) => {
       email: fakeEmail, 
       password: fakePassword, 
       anonymousName,
-      bio: "", // ✅ Added bio field
+      bio: "",
     });
     await user.save();
     const token = generateToken(user._id);
@@ -129,7 +137,7 @@ router.post("/anonymous/register", async (req, res) => {
         email: user.email,
         anonymousName: user.anonymousName,
         avatarColor: user.avatarColor || "#6C63FF",
-        bio: user.bio || "", // ✅ Added bio field
+        bio: user.bio || "",
       },
     });
   } catch (error) {
@@ -138,7 +146,7 @@ router.post("/anonymous/register", async (req, res) => {
   }
 });
 
-// ✅ REGULAR REGISTER - Added bio field
+// ✅ REGULAR REGISTER
 router.post("/register", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -150,7 +158,7 @@ router.post("/register", async (req, res) => {
       email, 
       password, 
       anonymousName,
-      bio: "", // ✅ Added bio field
+      bio: "",
     });
     await user.save();
     const token = generateToken(user._id);
@@ -162,7 +170,7 @@ router.post("/register", async (req, res) => {
         email: user.email,
         anonymousName: user.anonymousName,
         avatarColor: user.avatarColor,
-        bio: user.bio || "", // ✅ Added bio field
+        bio: user.bio || "",
       },
     });
   } catch (error) {
@@ -171,47 +179,7 @@ router.post("/register", async (req, res) => {
   }
 });
 
-
-
-// Save push token
-router.post("/push-token", protect, async (req, res) => {
-  try {
-    const { pushToken } = req.body;
-    if (!pushToken) {
-      return res.status(400).json({ error: "Push token required" });
-    }
-
-    if (!req.user.pushTokens) {
-      req.user.pushTokens = [];
-    }
-
-    if (!req.user.pushTokens.includes(pushToken)) {
-      req.user.pushTokens.push(pushToken);
-      await req.user.save();
-      console.log(`✅ Push token added for ${req.user.anonymousName}`);
-    }
-
-    res.json({ success: true });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Remove push token
-router.post("/push-token/remove", protect, async (req, res) => {
-  try {
-    const { pushToken } = req.body;
-    if (req.user.pushTokens) {
-      req.user.pushTokens = req.user.pushTokens.filter(t => t !== pushToken);
-      await req.user.save();
-    }
-    res.json({ success: true });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// ✅ LOGIN - Added bio field
+// ✅ LOGIN
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -229,7 +197,7 @@ router.post("/login", async (req, res) => {
         email: user.email,
         anonymousName: user.anonymousName,
         avatarColor: user.avatarColor,
-        bio: user.bio || "", // ✅ Added bio field
+        bio: user.bio || "",
       },
     });
   } catch (error) {
@@ -238,7 +206,7 @@ router.post("/login", async (req, res) => {
   }
 });
 
-// ✅ GET CURRENT USER - Added bio field
+// ✅ GET CURRENT USER
 router.get("/me", protect, async (req, res) => {
   try {
     res.json({
@@ -246,7 +214,7 @@ router.get("/me", protect, async (req, res) => {
       email: req.user.email,
       anonymousName: req.user.anonymousName,
       avatarColor: req.user.avatarColor,
-      bio: req.user.bio || "", // ✅ Added bio field
+      bio: req.user.bio || "",
     });
   } catch (error) {
     console.error("Get user error:", error);
@@ -259,7 +227,6 @@ router.put("/profile", protect, async (req, res) => {
   try {
     const { bio } = req.body;
     
-    // Only update bio (display name is fixed for anonymous users)
     if (bio !== undefined) {
       req.user.bio = bio;
     }

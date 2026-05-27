@@ -18,7 +18,7 @@ import { useRouter, useFocusEffect } from "expo-router";
 import { getCurrentUser, getUserId } from "../services/authService";
 import socketService from "../services/socket";
 
-const API_URL = "http://192.168.1.69:5000/api";
+import { API_URL } from '../src/config';
 
 type UserItem = {
   id: string;

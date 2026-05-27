@@ -11,6 +11,7 @@ import {
   Alert,
   Animated,
   Dimensions,
+  Keyboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -41,11 +42,14 @@ export default function CreatePostScreen() {
   const [loading, setLoading] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
   const [userName, setUserName] = useState('Anonymous');
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
   const scaleAnim = useRef(new Animated.Value(0.95)).current;
   const charBounceAnim = useRef(new Animated.Value(1)).current;
+  const scrollViewRef = useRef<any>(null);
 
   const remainingChars = MAX_CHARS - content.length;
   const isDisabled = content.trim().length === 0 || loading;
@@ -60,6 +64,23 @@ export default function CreatePostScreen() {
       Animated.spring(slideAnim, { toValue: 0, tension: 70, friction: 10, useNativeDriver: true }),
       Animated.spring(scaleAnim, { toValue: 1, tension: 80, friction: 12, useNativeDriver: true }),
     ]).start();
+  }, []);
+
+  // Track keyboard height to avoid covering input
+  useEffect(() => {
+    const showSub = Keyboard.addListener('keyboardDidShow', (e) => {
+      const h = e.endCoordinates.height;
+      setKeyboardHeight(h);
+      setKeyboardVisible(true);
+    });
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardHeight(0);
+      setKeyboardVisible(false);
+    });
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
   }, []);
 
   // Animate char counter when approaching limit
@@ -130,70 +151,69 @@ export default function CreatePostScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-      >
-        {/* ── Header ── */}
-        <View style={styles.header}>
-          <TouchableOpacity 
-            style={styles.closeBtn} 
-            onPress={handleCancel} 
-            activeOpacity={0.7}
-          >
-            <Ionicons name="arrow-back" size={22} color="#374151" />
-          </TouchableOpacity>
-
-          <Text style={styles.headerTitle}>Create Post</Text>
-
-          <TouchableOpacity
-            style={[styles.postBtn, isDisabled && styles.postBtnDisabled]}
-            onPress={createPost}
-            disabled={isDisabled}
-            activeOpacity={0.85}
-          >
-            {loading ? (
-              <ActivityIndicator color="#FFF" size="small" />
-            ) : (
-              <>
-                <Text style={styles.postBtnText}>Post</Text>
-                <Ionicons name="send" size={14} color="#FFF" />
-              </>
-            )}
-          </TouchableOpacity>
-        </View>
-
-        {/* ── Main Content ── */}
-        <Animated.ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
+      {/* ── Header ── */}
+      <View style={styles.header}>
+        <TouchableOpacity 
+          style={styles.closeBtn} 
+          onPress={handleCancel} 
+          activeOpacity={0.7}
         >
-          {/* Author Card */}
-          <Animated.View
-            style={[
-              styles.authorCard,
-              {
-                opacity: fadeAnim,
-                transform: [{ scale: scaleAnim }],
-              },
-            ]}
-          >
-            <View style={styles.authorRow}>
-              <View style={[styles.avatar, { backgroundColor: avatarColor + '15' }]}>
-                <Text style={[styles.avatarText, { color: avatarColor }]}>{avatarLetter}</Text>
-              </View>
-              <View style={styles.authorInfo}>
-                <Text style={[styles.authorName, { color: avatarColor }]}>{userName}</Text>
-                <View style={styles.anonBadge}>
-                  <View style={styles.anonDot} />
-                  <Text style={styles.anonBadgeText}>Anonymous Post</Text>
-                </View>
+          <Ionicons name="arrow-back" size={22} color="#374151" />
+        </TouchableOpacity>
+
+        <Text style={styles.headerTitle}>Create Post</Text>
+
+        <TouchableOpacity
+          style={[styles.postBtn, isDisabled && styles.postBtnDisabled]}
+          onPress={createPost}
+          disabled={isDisabled}
+          activeOpacity={0.85}
+        >
+          {loading ? (
+            <ActivityIndicator color="#FFF" size="small" />
+          ) : (
+            <>
+              <Text style={styles.postBtnText}>Post</Text>
+              <Ionicons name="send" size={14} color="#FFF" />
+            </>
+          )}
+        </TouchableOpacity>
+      </View>
+
+      {/* ── Main Content ── */}
+      <Animated.ScrollView
+        ref={scrollViewRef}
+        style={{ flex: 1 }}
+        contentContainerStyle={[
+          styles.scrollContent,
+          keyboardVisible && { paddingBottom: keyboardHeight + 20 }
+        ]}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* Author Card */}
+        <Animated.View
+          style={[
+            styles.authorCard,
+            {
+              opacity: fadeAnim,
+              transform: [{ scale: scaleAnim }],
+            },
+          ]}
+        >
+          <View style={styles.authorRow}>
+            <View style={[styles.avatar, { backgroundColor: avatarColor + '15' }]}>
+              <Text style={[styles.avatarText, { color: avatarColor }]}>{avatarLetter}</Text>
+            </View>
+            <View style={styles.authorInfo}>
+              <Text style={[styles.authorName, { color: avatarColor }]}>{userName}</Text>
+              <View style={styles.anonBadge}>
+                <View style={styles.anonDot} />
+                <Text style={styles.anonBadgeText}>Anonymous Post</Text>
               </View>
             </View>
-          </Animated.View>
+          </View>
+        </Animated.View>
 
           {/* Composer Card */}
           <Animated.View
@@ -273,41 +293,39 @@ export default function CreatePostScreen() {
             </View>
           </Animated.View>
 
-          {/* Tips Section */}
-          <Animated.View style={[styles.tipsSection, { opacity: fadeAnim }]}>
-  <View style={styles.tipsHeader}>
-    <Text style={styles.tipsTitle}>A little inspiration for you...</Text>
-  </View>
-  
-  <View style={styles.tipsGrid}>
-    <View style={styles.tipCard}>
-      <View style={styles.tipIconWrap}>
-        <Ionicons name="eye-off-outline" size={24} color="#6C63FF" />
-      </View>
-      <Text style={styles.tipTitle}>You're invisible here </Text>
-      <Text style={styles.tipDesc}>No one knows it's you — speak freely!</Text>
-    </View>
+        {/* Tips Section */}
+        <Animated.View style={[styles.tipsSection, { opacity: fadeAnim }]}>
+          <View style={styles.tipsHeader}>
+            <Text style={styles.tipsTitle}>A little inspiration for you...</Text>
+          </View>
+          
+          <View style={styles.tipsGrid}>
+            <View style={styles.tipCard}>
+              <View style={styles.tipIconWrap}>
+                <Ionicons name="eye-off-outline" size={24} color="#6C63FF" />
+              </View>
+              <Text style={styles.tipTitle}>You're invisible here </Text>
+              <Text style={styles.tipDesc}>No one knows it's you — speak freely!</Text>
+            </View>
 
-    <View style={styles.tipCard}>
-      <View style={styles.tipIconWrap}>
-        <Ionicons name="heart-outline" size={24} color="#F43F5E" />
-      </View>
-      <Text style={styles.tipTitle}>Just be yourself </Text>
-      <Text style={styles.tipDesc}>The realest posts get the most love</Text>
-    </View>
+            <View style={styles.tipCard}>
+              <View style={styles.tipIconWrap}>
+                <Ionicons name="heart-outline" size={24} color="#F43F5E" />
+              </View>
+              <Text style={styles.tipTitle}>Just be yourself </Text>
+              <Text style={styles.tipDesc}>The realest posts get the most love</Text>
+            </View>
 
-    <View style={styles.tipCard}>
-      <View style={styles.tipIconWrap}>
-        <Ionicons name="chatbubbles-outline" size={24} color="#10B981" />
-      </View>
-      <Text style={styles.tipTitle}>Don't be a stranger 💬</Text>
-      <Text style={styles.tipDesc}>Reply to comments — make friends!</Text>
-    </View>
-  </View>
-</Animated.View>
-        
-        </Animated.ScrollView>
-      </KeyboardAvoidingView>
+            <View style={styles.tipCard}>
+              <View style={styles.tipIconWrap}>
+                <Ionicons name="chatbubbles-outline" size={24} color="#10B981" />
+              </View>
+              <Text style={styles.tipTitle}>Don't be a stranger 💬</Text>
+              <Text style={styles.tipDesc}>Reply to comments — make friends!</Text>
+            </View>
+          </View>
+        </Animated.View>
+      </Animated.ScrollView>
     </SafeAreaView>
   );
 }

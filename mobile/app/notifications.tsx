@@ -1,3 +1,5 @@
+import { API_URL } from '../src/config';
+
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
@@ -166,7 +168,7 @@ export default function NotificationsScreen() {
   const loadNotifications = async () => {
     try {
       const token = await getToken();
-      const response = await fetch('http://192.168.1.69:5000/api/notifications', {
+      const response = await fetch('${API_URL}/notifications', {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await response.json();
@@ -182,7 +184,7 @@ export default function NotificationsScreen() {
   const markAsRead = async (id: string) => {
     try {
       const token = await getToken();
-      await fetch(`http://192.168.1.69:5000/api/notifications/${id}/read`, {
+      await fetch(`${API_URL}/notifications/${id}/read`, {
         method: 'PUT',
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -197,7 +199,7 @@ export default function NotificationsScreen() {
   const markAllAsRead = async () => {
     try {
       const token = await getToken();
-      await fetch('http://192.168.1.69:5000/api/notifications/read-all', {
+      await fetch(`${API_URL}/notifications/read-all`, {
         method: 'PUT',
         headers: { Authorization: `Bearer ${token}` },
       });

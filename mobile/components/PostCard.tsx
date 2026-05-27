@@ -10,11 +10,13 @@ import {
   FlatList,
   Pressable,
   Animated,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useAppDispatch } from "../src/redux/hooks";
+import { useAppDispatch, useAppSelector } from "../src/redux/hooks";
 import {
   likePostAsync,
   commentPostAsync,
@@ -68,7 +70,6 @@ export default function PostCard({ post }: PostCardProps) {
   const [liked, setLiked] = useState(false);
   const [localLikes, setLocalLikes] = useState(post.likes || 0);
   const [isOwner, setIsOwner] = useState(false);
-  const [isSaved, setIsSaved] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [showReportModal, setShowReportModal] = useState(false);
   const [reportReason, setReportReason] = useState("");
@@ -80,6 +81,11 @@ export default function PostCard({ post }: PostCardProps) {
 
   const avatarColor = getAvatarColor(post.username || "A");
   const avatarLetter = (post.username || "A")[0].toUpperCase();
+
+  const isSaved = useAppSelector((state) => {
+    const p = state.posts.posts.find((p: Post) => p._id === post._id);
+    return p?.isSaved || false;
+  });
 
   useEffect(() => {
     const checkOwnership = async () => {
@@ -126,8 +132,7 @@ export default function PostCard({ post }: PostCardProps) {
   const handleSave = async () => {
     animateBounce(saveScale);
     try {
-      const result = await dispatch(savePostAsync(post._id)).unwrap();
-      setIsSaved(result.saved);
+      await dispatch(savePostAsync(post._id)).unwrap();
     } catch {
       Alert.alert("Error", "Failed to save post");
     }
@@ -219,7 +224,6 @@ export default function PostCard({ post }: PostCardProps) {
         onPress={handleViewDetail}
         style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
       >
-        {/* Header */}
         <View style={styles.header}>
           <View style={[styles.avatar, { backgroundColor: avatarColor + "14", borderColor: avatarColor + "35" }]}>
             <Text style={[styles.avatarText, { color: avatarColor }]}>{avatarLetter}</Text>
@@ -242,12 +246,9 @@ export default function PostCard({ post }: PostCardProps) {
           </TouchableOpacity>
         </View>
 
-        {/* Content */}
         <Text style={styles.content}>{post.content}</Text>
 
-        {/* Actions - REDESIGNED */}
         <View style={styles.actionsContainer}>
-          {/* Like Button */}
           <TouchableOpacity 
             style={[styles.actionBtn, liked && styles.actionBtnLiked]} 
             onPress={handleLike} 
@@ -262,11 +263,10 @@ export default function PostCard({ post }: PostCardProps) {
               />
             </Animated.View>
             <Text style={[styles.actionBtnText, liked && styles.actionBtnTextLiked]}>
-              {localLikes > 0 ? localLikes : "Like"}
+              {localLikes > 0 ? localLikes : ""}
             </Text>
           </TouchableOpacity>
 
-          {/* Comment Button */}
           <TouchableOpacity 
             style={styles.actionBtn} 
             onPress={() => setCommentModalVisible(true)}
@@ -274,23 +274,20 @@ export default function PostCard({ post }: PostCardProps) {
           >
             <Ionicons name="chatbubble-outline" size={20} color="#9CA3AF" />
             <Text style={styles.actionBtnText}>
-              {localComments.length > 0 ? localComments.length : "Comment"}
+              {localComments.length > 0 ? localComments.length : ""}
             </Text>
           </TouchableOpacity>
 
-          {/* Message Button */}
           <TouchableOpacity 
             style={styles.actionBtn} 
             onPress={handleStartChat}
             activeOpacity={0.7}
           >
             <Feather name="send" size={18} color="#9CA3AF" />
-            <Text style={styles.actionBtnText}>Message</Text>
           </TouchableOpacity>
         </View>
       </Pressable>
 
-      {/* Post Menu */}
       <PostMenu
         visible={menuVisible}
         onClose={() => setMenuVisible(false)}
@@ -303,7 +300,6 @@ export default function PostCard({ post }: PostCardProps) {
         onEdit={handleEdit}
       />
 
-      {/* Edit Post Modal */}
       <EditPostModal
         visible={editModalVisible}
         onClose={() => setEditModalVisible(false)}
@@ -312,14 +308,33 @@ export default function PostCard({ post }: PostCardProps) {
         onSave={handleSaveEdit}
       />
 
-      {/* Comment Modal */}
-      <Modal visible={commentModalVisible} animationType="slide" transparent>
-        <View style={styles.overlay}>
-          <View style={styles.sheet}>
+      {/* ✅ FIXED Comment Modal */}
+      <Modal 
+        visible={commentModalVisible} 
+        animationType="slide" 
+        transparent
+        statusBarTranslucent
+        onRequestClose={() => {
+          setCommentModalVisible(false);
+          setCommentContent('');
+        }}
+      >
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+        >
+          <View style={styles.commentSheet}>
             <View style={styles.sheetHandle} />
             <View style={styles.sheetHeader}>
               <Text style={styles.sheetTitle}>Comments</Text>
-              <TouchableOpacity style={styles.closeBtn} onPress={() => setCommentModalVisible(false)}>
+              <TouchableOpacity 
+                style={styles.closeBtn} 
+                onPress={() => {
+                  setCommentModalVisible(false);
+                  setCommentContent('');
+                }}
+              >
                 <Ionicons name="close" size={20} color="#6B7280" />
               </TouchableOpacity>
             </View>
@@ -327,8 +342,9 @@ export default function PostCard({ post }: PostCardProps) {
             <FlatList
               data={localComments}
               keyExtractor={(_, i) => i.toString()}
-              style={{ flex: 1 }}
-              contentContainerStyle={styles.commentList}
+              style={styles.commentListContainer}
+              contentContainerStyle={styles.commentListContent}
+              keyboardShouldPersistTaps="handled"
               renderItem={({ item }) => (
                 <View style={styles.commentItem}>
                   <View style={[styles.commentAvatar, { backgroundColor: getAvatarColor(item.username) + "14" }]}>
@@ -364,6 +380,10 @@ export default function PostCard({ post }: PostCardProps) {
                 onChangeText={setCommentContent}
                 style={styles.commentInput}
                 multiline
+                maxLength={500}
+                returnKeyType="send"
+                blurOnSubmit={false}
+                onSubmitEditing={handleComment}
               />
               <TouchableOpacity
                 style={[styles.sendBtn, !commentContent.trim() && styles.sendBtnDisabled]}
@@ -375,7 +395,7 @@ export default function PostCard({ post }: PostCardProps) {
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Report Modal */}
@@ -429,8 +449,6 @@ const styles = StyleSheet.create({
     borderColor: "#F0F0F8",
   },
   cardPressed: { opacity: 0.97, transform: [{ scale: 0.995 }] },
-
-  // Post header
   header: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 },
   avatar: {
     width: 38, height: 38, borderRadius: 12,
@@ -449,8 +467,6 @@ const styles = StyleSheet.create({
   time: { fontSize: 11, color: "#C4C4D4", fontWeight: "500" },
   editedTag: { fontSize: 11, color: "#C4C4D4", fontStyle: "italic" },
   moreBtn: { padding: 4 },
-
-  // Content
   content: {
     fontSize: 15, 
     color: "#1F2937", 
@@ -458,8 +474,6 @@ const styles = StyleSheet.create({
     marginBottom: 14, 
     letterSpacing: 0.1,
   },
-
-  // Actions - NEW CLEAN DESIGN
   actionsContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -488,22 +502,38 @@ const styles = StyleSheet.create({
   actionBtnTextLiked: {
     color: "#10B981",
   },
-
-  // Overlay & sheet
-  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" },
-  sheet: {
+  
+  // ✅ Modal Overlay
+  modalOverlay: { 
+    flex: 1, 
+    backgroundColor: "rgba(0,0,0,0.4)", 
+    justifyContent: "flex-end" 
+  },
+  overlay: { 
+    flex: 1, 
+    backgroundColor: "rgba(0,0,0,0.4)", 
+    justifyContent: "flex-end" 
+  },
+  
+  // ✅ Comment Sheet
+  commentSheet: {
     backgroundColor: "#FFFFFF",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    height: "70%",
-    overflow: "hidden",
+    maxHeight: '95%',
+    minHeight: '50%',
+    paddingBottom: Platform.OS === 'ios' ? 40 : 20,
   },
+  commentListContainer: {
+    flex: 1,
+  },
+  
   reportSheet: {
     backgroundColor: "#FFFFFF",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingHorizontal: 20,
-    paddingBottom: 32,
+    paddingBottom: Platform.OS === 'ios' ? 30 : 20,
     overflow: "hidden",
   },
   sheetHandle: {
@@ -533,9 +563,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
-  // Comments
-  commentList: { paddingHorizontal: 16, paddingBottom: 8 },
+  commentListContent: { 
+    paddingHorizontal: 16, 
+    paddingBottom: 8 
+  },
   commentItem: {
     flexDirection: "row",
     gap: 10,
@@ -565,8 +596,8 @@ const styles = StyleSheet.create({
   emptyComments: { alignItems: "center", paddingVertical: 48, gap: 8 },
   emptyCommentsTitle: { fontSize: 16, fontWeight: "600", color: "#9CA3AF" },
   emptyCommentsSub: { fontSize: 13, color: "#D1D5DB" },
-
-  // Comment input
+  
+  // ✅ Input Row
   inputRow: {
     flexDirection: "row",
     alignItems: "flex-end",
@@ -598,8 +629,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   sendBtnDisabled: { backgroundColor: "#E5E7EB" },
-
-  // Report
+  
   reportSubtitle: { fontSize: 13, color: "#9CA3AF", marginBottom: 16, marginTop: 4 },
   reportOption: {
     flexDirection: "row",
@@ -623,7 +653,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     backgroundColor: "#F3F4F6",
     alignItems: "center",
-  },
+  }, 
   cancelBtnText: { color: "#6B7280", fontSize: 14, fontWeight: "600" },
   submitBtn: {
     flex: 1,

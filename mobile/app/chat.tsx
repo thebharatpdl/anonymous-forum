@@ -1,3 +1,4 @@
+import { API_URL } from '../src/config';
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   View,
@@ -158,7 +159,7 @@ export default function ChatScreen() {
 
   const fetchChatHistory = async () => {
     try {
-      const res = await fetch(`http://192.168.1.69:5000/api/chat/history/${roomId}`);
+const res = await fetch(`${API_URL}/chat/history/${roomId}`);
       const data = await res.json();
       setMessages(data.map((m: Message) => ({ ...m, reactions: m.reactions ?? [] })));
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 100);

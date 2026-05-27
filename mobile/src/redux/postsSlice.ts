@@ -20,6 +20,7 @@ export type Post = {
   createdAt?: string;
   comments?: Comment[];
   edited?: boolean;
+  isSaved?: boolean;
 };
 
 type PostsState = {
@@ -40,13 +41,11 @@ const initialState: PostsState = {
 // POST THUNKS
 // ============================================
 
-// Fetch all posts
 export const fetchPosts = createAsyncThunk("posts/fetchPosts", async () => {
   const res = await axios.get(API_URL);
   return res.data;
 });
 
-// Fetch priority feed (followed users first)
 export const fetchPriorityFeed = createAsyncThunk(
   "posts/fetchPriorityFeed",
   async () => {
@@ -59,7 +58,6 @@ export const fetchPriorityFeed = createAsyncThunk(
   }
 );
 
-// Create post
 export const createPost = createAsyncThunk(
   "posts/createPost",
   async (content: string) => {
@@ -73,7 +71,6 @@ export const createPost = createAsyncThunk(
   }
 );
 
-// Like/Unlike post
 export const likePostAsync = createAsyncThunk(
   "posts/likePost",
   async (postId: string) => {
@@ -87,7 +84,6 @@ export const likePostAsync = createAsyncThunk(
   }
 );
 
-// Comment on post
 export const commentPostAsync = createAsyncThunk(
   "posts/commentPost",
   async ({ postId, content }: { postId: string; content: string }) => {
@@ -108,7 +104,6 @@ export const commentPostAsync = createAsyncThunk(
   }
 );
 
-// Delete post
 export const deletePostAsync = createAsyncThunk(
   "posts/deletePost",
   async (postId: string) => {
@@ -121,7 +116,6 @@ export const deletePostAsync = createAsyncThunk(
   }
 );
 
-// Edit post
 export const editPostAsync = createAsyncThunk(
   "posts/editPost",
   async ({ postId, content }: { postId: string; content: string }) => {
@@ -135,7 +129,6 @@ export const editPostAsync = createAsyncThunk(
   }
 );
 
-// Save/Unsave post
 export const savePostAsync = createAsyncThunk(
   "posts/savePost",
   async (postId: string) => {
@@ -149,7 +142,6 @@ export const savePostAsync = createAsyncThunk(
   }
 );
 
-// Hide/Not Interested
 export const hidePostAsync = createAsyncThunk(
   "posts/hidePost",
   async (postId: string) => {
@@ -163,7 +155,6 @@ export const hidePostAsync = createAsyncThunk(
   }
 );
 
-// Report post
 export const reportPostAsync = createAsyncThunk(
   "posts/reportPost",
   async ({ postId, reason }: { postId: string; reason: string }) => {
@@ -177,11 +168,6 @@ export const reportPostAsync = createAsyncThunk(
   }
 );
 
-// ============================================
-// USER FOLLOW THUNKS
-// ============================================
-
-// Follow user - FIXED
 export const followUserAsync = createAsyncThunk(
   "users/follow",
   async (userId: string, { rejectWithValue }) => {
@@ -203,7 +189,6 @@ export const followUserAsync = createAsyncThunk(
   }
 );
 
-// Unfollow user - FIXED
 export const unfollowUserAsync = createAsyncThunk(
   "users/unfollow",
   async (userId: string, { rejectWithValue }) => {
@@ -224,6 +209,7 @@ export const unfollowUserAsync = createAsyncThunk(
     }
   }
 );
+
 // ============================================
 // REDUX SLICE
 // ============================================
@@ -280,7 +266,6 @@ const postsSlice = createSlice({
   
   extraReducers: (builder) => {
     builder
-      // Fetch Posts
       .addCase(fetchPosts.pending, (state) => {
         state.loading = true;
         state.error = null;
@@ -294,7 +279,6 @@ const postsSlice = createSlice({
         state.error = action.error.message || "Failed to fetch posts";
       })
       
-      // Priority Feed
       .addCase(fetchPriorityFeed.pending, (state) => {
         state.loading = true;
         state.error = null;
@@ -308,12 +292,10 @@ const postsSlice = createSlice({
         state.error = action.error.message || "Failed to fetch feed";
       })
       
-      // Create Post
       .addCase(createPost.fulfilled, (state, action) => {
         state.posts.unshift(action.payload);
       })
       
-      // Like Post
       .addCase(likePostAsync.fulfilled, (state, action) => {
         const post = state.posts.find(p => p._id === action.payload.postId);
         if (post) {
@@ -321,7 +303,6 @@ const postsSlice = createSlice({
         }
       })
       
-      // Comment
       .addCase(commentPostAsync.fulfilled, (state, action) => {
         const post = state.posts.find(p => p._id === action.payload.postId);
         if (post) {
@@ -330,12 +311,10 @@ const postsSlice = createSlice({
         }
       })
       
-      // Delete Post
       .addCase(deletePostAsync.fulfilled, (state, action) => {
         state.posts = state.posts.filter(p => p._id !== action.payload.postId);
       })
       
-      // Edit Post
       .addCase(editPostAsync.fulfilled, (state, action) => {
         const post = state.posts.find(p => p._id === action.payload.postId);
         if (post) {
@@ -344,12 +323,35 @@ const postsSlice = createSlice({
         }
       })
       
-      // Follow/Unfollow (optional - for state tracking)
+      // ✅ SAVE POST - ADDED
+      .addCase(savePostAsync.fulfilled, (state, action) => {
+        const post = state.posts.find(p => p._id === action.payload.postId);
+        if (post) {
+          post.isSaved = action.payload.saved;
+        }
+      })
+      
+      // ✅ HIDE POST - ADDED
+      .addCase(hidePostAsync.fulfilled, (state, action) => {
+        const post = state.posts.find(p => p._id === action.payload.postId);
+        if (post) {
+          (post as any).isHidden = action.payload.hidden;
+        }
+      })
+      
+      // ✅ REPORT POST - ADDED
+      .addCase(reportPostAsync.fulfilled, (state, action) => {
+        const post = state.posts.find(p => p._id === action.payload.postId);
+        if (post) {
+          (post as any).reported = action.payload.reported;
+        }
+      })
+      
       .addCase(followUserAsync.fulfilled, (state, action) => {
-        // Optional: update follow state in store if needed
+        // Optional
       })
       .addCase(unfollowUserAsync.fulfilled, (state, action) => {
-        // Optional: update follow state in store if needed
+        // Optional
       });
   },
 });

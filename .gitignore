@@ -13,3 +13,8 @@ npm-debug.log
 
 # OS files
 .DS_Store
+
+
+# Firebase secrets (NEVER commit these)
+google-services.json
+*-firebase-adminsdk-*.json
