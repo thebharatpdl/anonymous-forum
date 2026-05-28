@@ -19,7 +19,7 @@
         "foregroundImage": "./assets/images/icons.png"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.whispr.app",
+      "package": "com.whispr.social",
       "versionCode": 1,
       "permissions": ["INTERNET", "NOTIFICATIONS", "VIBRATE"]
     },
