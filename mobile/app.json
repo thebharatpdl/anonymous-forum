@@ -20,7 +20,7 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.whispr.social",
-      "versionCode": 1,
+      "versionCode": 4,
       "permissions": ["INTERNET", "NOTIFICATIONS", "VIBRATE"]
     },
     "web": {
