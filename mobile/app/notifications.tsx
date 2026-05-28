@@ -168,8 +168,8 @@ export default function NotificationsScreen() {
   const loadNotifications = async () => {
     try {
       const token = await getToken();
-      const response = await fetch('${API_URL}/notifications', {
-        headers: { Authorization: `Bearer ${token}` },
+const response = await fetch(`${API_URL}/notifications`, {
+          headers: { Authorization: `Bearer ${token}` },
       });
       const data = await response.json();
       setNotifications(data);

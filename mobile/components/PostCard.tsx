@@ -277,6 +277,7 @@ export default function PostCard({ post }: PostCardProps) {
               {localComments.length > 0 ? localComments.length : ""}
             </Text>
           </TouchableOpacity>
+{!isOwner && (
 
           <TouchableOpacity 
             style={styles.actionBtn} 
@@ -285,6 +286,7 @@ export default function PostCard({ post }: PostCardProps) {
           >
             <Feather name="send" size={18} color="#9CA3AF" />
           </TouchableOpacity>
+          )}
         </View>
       </Pressable>
 

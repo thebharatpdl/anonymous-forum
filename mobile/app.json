@@ -13,7 +13,7 @@
       "bundleIdentifier": "com.whispr.app"
     },
     "android": {
-      "softwareKeyboardLayoutMode": "pan",
+      "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "backgroundColor": "#6C63FF",
         "foregroundImage": "./assets/images/icons.png"

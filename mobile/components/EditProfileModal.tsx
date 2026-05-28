@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,19 +8,21 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
+  Platform,
+  Keyboard,
+  Animated,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { getCurrentUser, updateUserProfile, User } from '../services/authService';
 
 interface EditProfileModalProps {
   visible: boolean;
   onClose: () => void;
-  onUpdate: (updatedUser: User) => void;
+  onUpdate: (updatedUser: any) => void;
 }
 
 export default function EditProfileModal({ visible, onClose, onUpdate }: EditProfileModalProps) {
   const [bio, setBio] = useState('');
   const [loading, setLoading] = useState(false);
+  const slideAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (visible) {
@@ -28,19 +30,46 @@ export default function EditProfileModal({ visible, onClose, onUpdate }: EditPro
     }
   }, [visible]);
 
+  useEffect(() => {
+    const show = Keyboard.addListener("keyboardDidShow", (e) => {
+      Animated.spring(slideAnim, {
+        toValue: -e.endCoordinates.height + 50,
+        tension: 80,
+        friction: 12,
+        useNativeDriver: true,
+      }).start();
+    });
+    const hide = Keyboard.addListener("keyboardDidHide", () => {
+      Animated.spring(slideAnim, {
+        toValue: 0,
+        tension: 80,
+        friction: 12,
+        useNativeDriver: true,
+      }).start();
+    });
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, [slideAnim]);
+
   const loadUserData = async () => {
-    const user = await getCurrentUser();
-    setBio(user?.bio || '');
+    try {
+      const { getCurrentUser } = await import('../services/authService');
+      const user = await getCurrentUser();
+      setBio(user?.bio || '');
+    } catch (error) {
+      console.log('Error loading user:', error);
+    }
   };
 
   const handleSave = async () => {
+    Keyboard.dismiss();
     setLoading(true);
     try {
-      const updatedUser = await updateUserProfile({
-        bio: bio.trim(),
-      });
+      const { updateUserProfile } = await import('../services/authService');
+      const updatedUser = await updateUserProfile({ bio: bio.trim() });
       onUpdate(updatedUser);
-      Alert.alert('Success', 'Bio updated successfully');
       onClose();
     } catch (error) {
       Alert.alert('Error', 'Failed to update bio');
@@ -50,47 +79,44 @@ export default function EditProfileModal({ visible, onClose, onUpdate }: EditPro
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent={true}>
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalContent}>
-          {/* Header */}
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Edit Bio</Text>
-            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-              <Ionicons name="close" size={24} color="#111827" />
-            </TouchableOpacity>
-          </View>
+    <Modal visible={visible} animationType="fade" transparent={true}>
+      <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={onClose}>
+        <TouchableOpacity activeOpacity={1} onPress={() => {}}>
+          <Animated.View style={[styles.modalContent, { transform: [{ translateY: slideAnim }] }]}>
+            {/* Header */}
+            <View style={styles.header}>
+              <TouchableOpacity onPress={onClose} style={styles.cancelBtn}>
+                <Text style={styles.cancelText}>Cancel</Text>
+              </TouchableOpacity>
+             
+              <TouchableOpacity onPress={handleSave} style={styles.saveBtn} disabled={loading}>
+                {loading ? (
+                  <ActivityIndicator color="#6C63FF" size="small" />
+                ) : (
+                  <Text style={styles.saveText}>Save</Text>
+                )}
+              </TouchableOpacity>
+            </View>
 
-          {/* Bio Input */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Bio</Text>
-            <Text style={styles.inputHint}>Tell something about yourself...</Text>
+            {/* Bio Input */}
             <TextInput
-              style={[styles.input, styles.bioInput]}
-              placeholder="Add a bio..."
+              style={styles.bioInput}
+              placeholder="Tell something about yourself..."
+              placeholderTextColor="#9CA3AF"
               value={bio}
               onChangeText={setBio}
               multiline
-              numberOfLines={4}
               maxLength={150}
+              textAlignVertical="top"
+              autoFocus
             />
             <Text style={styles.charCount}>{bio.length}/150</Text>
-          </View>
 
-          {/* Save Button */}
-          <TouchableOpacity
-            style={[styles.saveButton, loading && styles.disabledButton]}
-            onPress={handleSave}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator color="#FFFFFF" />
-            ) : (
-              <Text style={styles.saveButtonText}>Save Bio</Text>
-            )}
-          </TouchableOpacity>
-        </View>
-      </View>
+            {/* Spacer */}
+            <View style={{ height: 52, marginTop: 16 }} />
+          </Animated.View>
+        </TouchableOpacity>
+      </TouchableOpacity>
     </Modal>
   );
 }
@@ -106,70 +132,58 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 40,
+    paddingTop: 16,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 30,
   },
-  modalHeader: {
+
+  // ✅ Header
+  header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    justifyContent: 'space-between',
+    marginBottom: 16,
   },
-  modalTitle: {
-    fontSize: 20,
+  cancelBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+  },
+  cancelText: {
+    fontSize: 16,
+    color: '#6B7280',
+    fontWeight: '500',
+  },
+  title: {
+    fontSize: 17,
     fontWeight: '700',
     color: '#111827',
   },
-  closeButton: {
-    padding: 4,
+  saveBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 4,
   },
-  inputGroup: {
-    marginBottom: 20,
-  },
-  inputLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#374151',
-    marginBottom: 4,
-  },
-  inputHint: {
-    fontSize: 12,
-    color: '#9CA3AF',
-    marginBottom: 8,
-  },
-  input: {
-    backgroundColor: '#F9FAFB',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+  saveText: {
     fontSize: 16,
+    color: '#6C63FF',
+    fontWeight: '600',
+  },
+
+  // ✅ Bio Input
+  bioInput: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 15,
     color: '#111827',
     borderWidth: 1,
     borderColor: '#E5E7EB',
-  },
-  bioInput: {
-    height: 120,
+    height: 130,
     textAlignVertical: 'top',
   },
   charCount: {
     fontSize: 11,
     color: '#9CA3AF',
     textAlign: 'right',
-    marginTop: 4,
-  },
-  saveButton: {
-    backgroundColor: '#6366F1',
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginTop: 16,
-  },
-  saveButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  disabledButton: {
-    opacity: 0.6,
+    marginTop: 6,
   },
 });

@@ -100,10 +100,10 @@ export default function CreatePostScreen() {
       const token = await getToken();
       if (!token) { Alert.alert('Error', 'Please login first'); router.replace('/'); return; }
       const response = await axios.post(
-        `${API_URL}`,
-        { content: content.trim() },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+  `${API_URL}/posts`,  // ← add /posts
+  { content: content.trim() },
+  { headers: { Authorization: `Bearer ${token}` } }
+);
       dispatch(addPost(response.data));
       Alert.alert('✨ Posted!', 'Your anonymous thought is now live.', [
         { text: 'OK', onPress: () => router.back() },
